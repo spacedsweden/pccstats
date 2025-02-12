@@ -83,9 +83,10 @@ Below is an example of how staggered starts affect wait times based on scoreholi
 | A        | 21:00 | 3      | 24/30        | 12 min    |
 | A        | 22:00 | 4      | 30/30        | 12 min    |
 
-Staggered starts only improve wait times at the very beginning and end of the night, as demonstrated in the table above. The only way to make staggered starts work is by delaying the smaller division’s start significantly, which would diminish the league’s social aspect.
+Staggered starts only improve wait times at the very beginning and end of the night, as demonstrated in the table above. The only way to make staggered starts work is by starting the smaller division and delay the larger divisions start significantly so A or B2 can complete pretty much all of their games. Or you will end up with slow soup in the middle that is even worse for loosing divisions wait times.
 
 ### Real data on C last week
+
 |Hour | Wait times |Boards|
 |-----|------------|---|
 |6-7  |00:08:57|4-6 (6 for 30 min)|
@@ -94,7 +95,9 @@ Staggered starts only improve wait times at the very beginning and end of the ni
 |9-10 |00:32:29|3|
 |10-11|00:33:03|3|
 
-The reason this data isn't linear is that Scoreholio only calculates averages. Many factors influence the results. For example, players tend to play their best and longest games toward the end of the night. When a board is removed from one division, not only is there one less board, but the longer game durations amplify wait times.
+The reason this data isn't linear is that Scoreholio only calculates averages. Many factors influence the results. For example, players tend to play their best and longest games toward the end of the night. For example in C last week the game duration went from an average 11:42 between 6 and 7 pm, to an 16:12 average between 10 and 11 pm. Thats half the increase in wait times right there.
+
+When a board is removed from one division, not only is there one less board, but the longer game durations amplify wait times.
 
 For these reasons, we will **not** implement staggered starts solely to address wait times, its not fair the the players that start early.
 
