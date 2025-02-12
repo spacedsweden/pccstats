@@ -20,6 +20,8 @@ Lets start with rewieing how week 1 went. Below are the numbers for first week. 
 
 The division that suffered the most was **C**, with an average wait time of 24 minutes and a max wait time of 55 minutes. This is not great, and we will take measures to prevent this from happening again.
 
+So while the results where expected, we where also a bit lucky that this night has shorter games than normal, we had a setting blocking back to back to court assignment wrong. We do feel that we would like improve the expected waittime and finish time for all divisions where possible so it does not get super long if we have good games. Good games (long one) are a big factor especially when you have few boards.
+
 ### Changes
 
 The solution for both Wednesday and Thursday is **more boards**, as increasing the number of available boards ensures smoother rotations, reduces wait times, maintains match flow, and minimizes the impact of longer games on the entire league. Additionally, keeping the number of boards consistent throughout the night is important to avoid disruptions. Changing the number of boards mid-event disrupts matchups and increases wait times. If you would like like to understand why the other changes are not being implemented, please read to the end.
@@ -101,12 +103,18 @@ When a board is removed from one division, not only is there one less board, but
 
 For these reasons, we will **not** implement staggered starts solely to address wait times, its not fair the the players that start early.
 
+### Lets end with some fun stats from last week for B divison
 
-### B1
-![alt text](image.png)
+B1 finished 3:40 after starting at 6:09and  B2 finished 3:27 after starting at 6:09.
+**Slide Brothers** spent  the most time playing games 1 hour 32min not including warmups, a whopping 33 minutes more time playing than the Budsters with 59 minutes playing games. Budsters ended the night 3/3  record and I guess they both win fast and loose fast, love it. Not suprisingly, the team with the longest game duration was **Slide Brothers** with taking 3 of the top 5 positions on longest game duration 1,4,5 those three games alone over 1 hour.
+We have two contenders for "Warmup" kings, Ptown Holers and WutDaFuq had a tight competition within in a minute of eachother, but kept a healty distance to rest of field trailing with at least 7 less total minutes of "warmup" time.
 
-### B2
-![alt text](image-1.png)
+![alt text](image-3.png)
 
-### C
-![alt text](image-2.png)
+![alt text](image-4.png)
+
+![alt text](image-5.png)
+
+![alt text](image-6.png)
+
+![alt text](image-7.png)
