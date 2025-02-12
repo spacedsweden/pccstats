@@ -83,5 +83,18 @@ Here are the expected completion times with outside boards, explaining how they 
 | A        | 10    | 3      | 2h 50m           | 17 min                       | 11 min                                 | 22:15              |
 | C        | 20    | 5      | 3h 24m           | 17 min                       | 17 min                                 | 21:24              |
 
+
+We recommend that A do play outside, and B2 dont the reason for this A is set schedule and 2 more teams so easier to handle 3 boards, B2 is only 8 teams and you should have minimum 4 in queue to ensure match-ups.
+
 We appreciate your patience and support as we optimize the league experience. See you on the boards!
 
+## Stats dump from Week 1
+
+### B1
+![alt text](image.png)
+
+### B2
+![alt text](image-1.png)
+
+### C
+![alt text](image-2.png)
