@@ -16,7 +16,7 @@ info:
        your message is sent as SMS. No extra configuration required.
     3. **Channel as a parameter** -- Switching channels is a one-field change, not a
        different API or a deeply nested payload.
-    4. **Polymorphic content** -- Rich content (cards, carousels, location pins, templates,
+    4. **Polymorphic content** -- Rich content (cards, carousels, location pins,
        and more) is expressed through a discriminated union on the content.type field,
        keeping payloads flat and predictable.
 
@@ -200,17 +200,6 @@ paths:
                     url: "https://example.com/receipt.pdf"
                     mediaType: document
                     caption: "Your receipt is attached."
-              templateMessage:
-                summary: WhatsApp template
-                value:
-                  to: "+15551234567"
-                  channel: whatsapp
-                  content:
-                    type: template
-                    id: "order_confirmation_v2"
-                    parameters:
-                      customer_name: "Jane"
-                      order_id: "ORD-98765"
               dispatchFailover:
                 summary: Failover dispatch
                 value:
@@ -1225,7 +1214,6 @@ components:
           card: '#/components/schemas/CardContent'
           carousel: '#/components/schemas/CarouselContent'
           location: '#/components/schemas/LocationContent'
-          template: '#/components/schemas/TemplateContent'
           list: '#/components/schemas/ListContent'
           choices: '#/components/schemas/ChoicesContent'
       oneOf:
@@ -1234,7 +1222,6 @@ components:
         - $ref: '#/components/schemas/CardContent'
         - $ref: '#/components/schemas/CarouselContent'
         - $ref: '#/components/schemas/LocationContent'
-        - $ref: '#/components/schemas/TemplateContent'
         - $ref: '#/components/schemas/ListContent'
         - $ref: '#/components/schemas/ChoicesContent'
 
@@ -1444,34 +1431,6 @@ components:
           type: string
           description: Street address of the location.
           example: "123 Market St, San Francisco, CA 94105"
-
-    TemplateContent:
-      type: object
-      description: |
-        A pre-approved message template. Required for WhatsApp Business API
-        initiated (outbound) conversations. Create and manage templates in
-        the Sinch Dashboard or via the Sinch Conversation API. Reference
-        them here by name or ID and supply parameter values.
-      required:
-        - type
-        - id
-        - parameters
-      properties:
-        type:
-          type: string
-          const: template
-        id:
-          type: string
-          description: Template identifier (name or ID).
-          example: "order_confirmation_v2"
-        parameters:
-          type: object
-          description: Key-value map of template parameter names to their values.
-          additionalProperties:
-            type: string
-          example:
-            customer_name: "Jane"
-            order_id: "ORD-98765"
 
     ListContent:
       type: object
