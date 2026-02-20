@@ -1,0 +1,1916 @@
+openapi: 3.1.0
+info:
+  title: Sinch Message Router API
+  version: 1.0.0
+  description: |
+    A developer-friendly messaging gateway that wraps the Sinch Conversation API
+    with a simplified, Twilio-inspired interface supporting progressive discovery.
+
+    ## Progressive Complexity
+
+    The API is designed so simple things are simple and complex things are possible:
+
+    | Level | Use Case | Example |
+    |-------|----------|---------|
+    | 1 | SMS (simplest) | `{ "to": "+1234567890", "body": "Hello" }` |
+    | 2 | Channel selection | `{ "to": "+1234567890", "channel": "whatsapp", "body": "Hello" }` |
+    | 3 | Rich content | `{ "to": "+1234567890", "channel": "rcs", "content": { "type": "card", ... } }` |
+    | 4 | Multi-channel dispatch | `{ "to": "+1234567890", "dispatch": [{ "channel": "rcs", ... }, { "channel": "sms", ... }] }` |
+
+    ## Authentication
+
+    Include your API key in the `X-API-Key` header or as a `Bearer` token in the `Authorization` header.
+
+    ## Rate Limiting
+
+    - Per API key: 1,000 requests/minute
+    - Global: 10,000 requests/minute
+
+    Rate limit headers are included in every response:
+    - `X-RateLimit-Limit`
+    - `X-RateLimit-Remaining`
+    - `X-RateLimit-Reset`
+  contact:
+    name: Sinch Message Router
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.messagerouter.sinch.com
+    description: Production
+  - url: http://localhost:5000
+    description: Local development
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+tags:
+  - name: Messages
+    description: Send, retrieve, and manage messages across channels.
+  - name: Channels
+    description: Discover available messaging channels and their capabilities.
+  - name: Dispatch
+    description: Manage reusable multi-channel dispatch rules.
+  - name: Templates
+    description: Manage message templates for channel-specific content.
+  - name: Contacts
+    description: Manage contacts and their channel identities.
+  - name: Webhooks
+    description: Register and manage webhook endpoints for event notifications.
+
+paths:
+  # ── Messages ──────────────────────────────────────────────────────────
+
+  /v1/messages:
+    post:
+      operationId: sendMessage
+      summary: Send a message
+      description: |
+        Send a message with progressive complexity:
+
+        **Level 1 — SMS (simplest):**
+        ```json
+        { "to": "+1234567890", "body": "Hello" }
+        ```
+
+        **Level 2 — Specify channel:**
+        ```json
+        { "to": "+1234567890", "channel": "whatsapp", "body": "Hello" }
+        ```
+
+        **Level 3 — Rich content:**
+        ```json
+        { "to": "+1234567890", "channel": "rcs", "content": { "type": "card", "title": "Welcome", "description": "..." } }
+        ```
+
+        **Level 4 — Multi-channel dispatch:**
+        ```json
+        { "to": "+1234567890", "dispatch": [{ "channel": "rcs", "body": "Hello" }, { "channel": "sms", "body": "Hello" }] }
+        ```
+      tags: [Messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+            examples:
+              sms-simple:
+                summary: Level 1 — Simple SMS
+                value:
+                  to: "+1234567890"
+                  body: Hello from the Message Router!
+              whatsapp-text:
+                summary: Level 2 — WhatsApp text
+                value:
+                  to: "+1234567890"
+                  channel: WhatsApp
+                  body: Hello via WhatsApp!
+              rcs-card:
+                summary: Level 3 — RCS rich card
+                value:
+                  to: "+1234567890"
+                  channel: Rcs
+                  content:
+                    type: card
+                    title: "Order Shipped"
+                    description: "Your order #12345 has shipped!"
+                    mediaUrl: "https://example.com/tracking.png"
+                    actions:
+                      - type: url
+                        title: Track Package
+                        url: "https://example.com/track/12345"
+                      - type: reply
+                        title: Contact Support
+                        payload: support_request
+              dispatch-failover:
+                summary: Level 4 — RCS → SMS failover
+                value:
+                  to: "+1234567890"
+                  dispatch:
+                    - channel: Rcs
+                      body: "Rich message on RCS"
+                      timeoutSeconds: 30
+                    - channel: Sms
+                      body: "Fallback to SMS"
+              whatsapp-template:
+                summary: WhatsApp template message
+                value:
+                  to: "+1234567890"
+                  channel: WhatsApp
+                  content:
+                    type: template
+                    templateId: welcome_v1
+                    languageCode: en
+                    templateParameters:
+                      name: Alice
+                      company: Acme Corp
+      responses:
+        '201':
+          description: Message accepted for delivery.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+    get:
+      operationId: listMessages
+      summary: List messages
+      description: List messages with optional filtering and cursor-based pagination.
+      tags: [Messages]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/MessageStatus'
+        - name: channel
+          in: query
+          schema:
+            $ref: '#/components/schemas/MessageChannel'
+        - name: from
+          in: query
+          schema:
+            type: string
+          description: Filter by sender identifier.
+        - name: to
+          in: query
+          schema:
+            type: string
+          description: Filter by recipient identifier.
+        - name: after
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Only return messages created after this timestamp.
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Only return messages created before this timestamp.
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Paginated list of messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMessageResponse'
+
+  /v1/messages/batch:
+    post:
+      operationId: sendBatch
+      summary: Send a batch of messages
+      description: |
+        Send multiple messages in a single request. Supports two patterns:
+
+        **Pattern 1 — Individual messages:**
+        ```json
+        { "messages": [{ "to": "+1...", "body": "Hello" }, { "to": "+2...", "body": "Hi" }] }
+        ```
+
+        **Pattern 2 — Shared template to multiple recipients:**
+        ```json
+        { "to": ["+1...", "+2..."], "body": "Hello everyone!", "channel": "sms" }
+        ```
+      tags: [Messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchSendRequest'
+            examples:
+              individual:
+                summary: Pattern 1 — Individual messages
+                value:
+                  messages:
+                    - to: "+11234567890"
+                      body: "Hello Alice!"
+                    - to: "+11234567891"
+                      channel: WhatsApp
+                      body: "Hello Bob!"
+              shared:
+                summary: Pattern 2 — Shared message
+                value:
+                  to:
+                    - "+11234567890"
+                    - "+11234567891"
+                    - "+11234567892"
+                  body: "Flash sale! 50% off today only."
+                  channel: Sms
+      responses:
+        '200':
+          description: Batch processing results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchMessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/messages/{messageId}:
+    get:
+      operationId: getMessage
+      summary: Get a message by ID
+      tags: [Messages]
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Message details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      operationId: revokeMessage
+      summary: Revoke a message
+      description: Cancel a message. Only messages in `Queued` status can be revoked.
+      tags: [Messages]
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Message revoked successfully.
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Message cannot be revoked (not in Queued status).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                code: CANNOT_REVOKE
+                message: "Message 'abc123' cannot be revoked. Only messages in 'Queued' status can be revoked."
+
+  # ── Channels ──────────────────────────────────────────────────────────
+
+  /v1/channels:
+    get:
+      operationId: listChannels
+      summary: List available channels
+      description: List all available messaging channels with their capabilities.
+      tags: [Channels]
+      responses:
+        '200':
+          description: List of channels with capability metadata.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChannelInfo'
+
+  /v1/channels/{channelId}:
+    get:
+      operationId: getChannel
+      summary: Get channel details
+      description: |
+        Get detailed information about a specific channel.
+        Accepts the channel slug (e.g. `sms`, `whatsapp`) or enum name (e.g. `WhatsApp`).
+      tags: [Channels]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Channel identifier (e.g. `sms`, `whatsapp`, `rcs`).
+      responses:
+        '200':
+          description: Channel details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelInfo'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Dispatch Rules ────────────────────────────────────────────────────
+
+  /v1/dispatch:
+    post:
+      operationId: createDispatchRule
+      summary: Create a dispatch rule
+      description: |
+        Create a reusable dispatch rule with a routing strategy and channel routes.
+
+        **Strategies:**
+        - `Failover` — Try routes in order until one succeeds.
+        - `Broadcast` — Send on all routes simultaneously.
+        - `RoundRobin` — Distribute across routes evenly.
+        - `CostOptimized` — Pick the cheapest available route.
+      tags: [Dispatch]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDispatchRuleRequest'
+            examples:
+              rcs-sms-failover:
+                summary: RCS → SMS failover rule
+                value:
+                  name: rcs-sms-failover
+                  description: Try RCS first, fall back to SMS
+                  settings:
+                    strategy: Failover
+                    timeoutPerRoute: 30
+                    routes:
+                      - channel: Rcs
+                        body: "{{message}}"
+                      - channel: Sms
+                        body: "{{message}}"
+              broadcast:
+                summary: Broadcast to SMS and WhatsApp
+                value:
+                  name: broadcast-sms-whatsapp
+                  description: Send on both SMS and WhatsApp
+                  settings:
+                    strategy: Broadcast
+                    routes:
+                      - channel: Sms
+                      - channel: WhatsApp
+      responses:
+        '201':
+          description: Dispatch rule created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispatchRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      operationId: listDispatchRules
+      summary: List dispatch rules
+      tags: [Dispatch]
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Paginated list of dispatch rules.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDispatchRuleResponse'
+
+  /v1/dispatch/{id}:
+    get:
+      operationId: getDispatchRule
+      summary: Get a dispatch rule
+      tags: [Dispatch]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: Dispatch rule details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispatchRule'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateDispatchRule
+      summary: Update a dispatch rule
+      description: Only provided fields are modified.
+      tags: [Dispatch]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDispatchRuleRequest'
+      responses:
+        '200':
+          description: Updated dispatch rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispatchRule'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      operationId: deleteDispatchRule
+      summary: Delete a dispatch rule
+      tags: [Dispatch]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204':
+          description: Dispatch rule deleted.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Templates ─────────────────────────────────────────────────────────
+
+  /v1/templates:
+    post:
+      operationId: createTemplate
+      summary: Create a message template
+      description: Create a new message template for channel-specific content.
+      tags: [Templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTemplateRequest'
+            examples:
+              welcome:
+                summary: WhatsApp welcome template
+                value:
+                  name: welcome_v1
+                  channel: WhatsApp
+                  body: "Welcome {{name}}! Thank you for joining {{company}}."
+                  parameterNames: [name, company]
+                  language: en
+      responses:
+        '201':
+          description: Template created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      operationId: listTemplates
+      summary: List templates
+      tags: [Templates]
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Paginated list of templates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTemplateResponse'
+
+  /v1/templates/{id}:
+    get:
+      operationId: getTemplate
+      summary: Get a template
+      tags: [Templates]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: Template details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateTemplate
+      summary: Update a template
+      description: Only provided fields are modified. Channel cannot be changed after creation.
+      tags: [Templates]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTemplateRequest'
+      responses:
+        '200':
+          description: Updated template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      operationId: deleteTemplate
+      summary: Delete a template
+      tags: [Templates]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204':
+          description: Template deleted.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Contacts ──────────────────────────────────────────────────────────
+
+  /v1/contacts:
+    post:
+      operationId: createContact
+      summary: Create a contact
+      description: Create a new contact with channel identities.
+      tags: [Contacts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContactRequest'
+            examples:
+              multi-channel:
+                summary: Contact with SMS and WhatsApp
+                value:
+                  displayName: Alice Smith
+                  externalId: customer-42
+                  channelIdentities:
+                    - channel: Sms
+                      identity: "+11234567890"
+                    - channel: WhatsApp
+                      identity: "+11234567890"
+                  email: alice@example.com
+                  language: en
+      responses:
+        '201':
+          description: Contact created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      operationId: listContacts
+      summary: List contacts
+      tags: [Contacts]
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Paginated list of contacts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedContactResponse'
+
+  /v1/contacts/{contactId}:
+    get:
+      operationId: getContact
+      summary: Get a contact
+      tags: [Contacts]
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Contact details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateContact
+      summary: Update a contact
+      description: Only provided fields are modified.
+      tags: [Contacts]
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContactRequest'
+      responses:
+        '200':
+          description: Updated contact.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      operationId: deleteContact
+      summary: Delete a contact
+      tags: [Contacts]
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Contact deleted.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/contacts/{contactId}/messages:
+    get:
+      operationId: getContactMessages
+      summary: Get message history for a contact
+      description: Retrieve message history across all channel identities for a contact.
+      tags: [Contacts]
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Paginated message history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Webhooks ──────────────────────────────────────────────────────────
+
+  /v1/webhooks:
+    post:
+      operationId: createWebhook
+      summary: Register a webhook
+      description: |
+        Register a new webhook endpoint to receive event notifications.
+
+        **Event types:**
+        - `message.delivered` — Message delivered to recipient
+        - `message.read` — Message read by recipient
+        - `message.failed` — Message delivery failed
+        - `message.submitted` — Message submitted to channel provider
+        - `dispatch.completed` — Dispatch routing completed successfully
+        - `dispatch.failed` — All dispatch routes exhausted
+
+        Webhook deliveries include an HMAC-SHA256 signature in the `X-Signature` header
+        for verification using the shared secret.
+      tags: [Webhooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+            examples:
+              delivery-events:
+                summary: Subscribe to delivery events
+                value:
+                  url: "https://example.com/webhooks/sinch"
+                  events:
+                    - message.delivered
+                    - message.failed
+                  secret: whsec_my_signing_secret
+              all-events:
+                summary: Subscribe to all events
+                value:
+                  url: "https://example.com/webhooks/all"
+                  secret: whsec_secret_key
+                  headers:
+                    X-Custom-Header: my-value
+      responses:
+        '201':
+          description: Webhook registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookRegistration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      operationId: listWebhooks
+      summary: List webhooks
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/pageSize'
+      responses:
+        '200':
+          description: Paginated list of webhooks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWebhookResponse'
+
+  /v1/webhooks/{id}:
+    get:
+      operationId: getWebhook
+      summary: Get a webhook
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: Webhook details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookRegistration'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateWebhook
+      summary: Update a webhook
+      description: Only provided fields are modified.
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebhookRequest'
+      responses:
+        '200':
+          description: Updated webhook.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookRegistration'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      operationId: deleteWebhook
+      summary: Delete a webhook
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204':
+          description: Webhook deleted.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/webhooks/{id}/test:
+    post:
+      operationId: testWebhook
+      summary: Test a webhook
+      description: Send a test event to the webhook endpoint to verify connectivity.
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: Test result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookTestResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+# ═════════════════════════════════════════════════════════════════════════
+# Components
+# ═════════════════════════════════════════════════════════════════════════
+
+components:
+
+  # ── Security Schemes ──────────────────────────────────────────────────
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  # ── Reusable Parameters ───────────────────────────────────────────────
+
+  parameters:
+    cursor:
+      name: cursor
+      in: query
+      description: Cursor for pagination. Pass the `nextCursor` from a previous response.
+      schema:
+        type: string
+    pageSize:
+      name: pageSize
+      in: query
+      description: Number of items per page (1–100).
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+    resourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  # ── Reusable Responses ────────────────────────────────────────────────
+
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            code: MISSING_CONTENT
+            message: "Provide at least one of: body, content, or dispatch."
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            code: NOT_FOUND
+            message: Resource not found.
+    RateLimited:
+      description: Rate limit exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            code: RATE_LIMITED
+            message: Rate limit exceeded. Retry after the time indicated in the Retry-After header.
+
+  # ── Schemas ───────────────────────────────────────────────────────────
+
+  schemas:
+
+    # ── Enums ─────────────────────────────────────────────────────────
+
+    MessageChannel:
+      type: string
+      enum:
+        - Sms
+        - Mms
+        - Rcs
+        - WhatsApp
+        - Messenger
+        - Viber
+        - Telegram
+        - Line
+        - KakaoTalk
+        - Instagram
+      description: Supported messaging channels.
+
+    MessageStatus:
+      type: string
+      enum:
+        - Queued
+        - Submitted
+        - Delivered
+        - Read
+        - Failed
+        - Revoked
+        - Expired
+      description: Delivery status of a message.
+
+    Priority:
+      type: string
+      enum: [Low, Normal, High]
+      default: Normal
+
+    DispatchStrategy:
+      type: string
+      enum: [Failover, Broadcast, RoundRobin, CostOptimized]
+      description: |
+        - `Failover` — Try routes in order until one succeeds.
+        - `Broadcast` — Send on all routes simultaneously.
+        - `RoundRobin` — Distribute across routes evenly.
+        - `CostOptimized` — Pick the cheapest available route.
+
+    TemplateStatus:
+      type: string
+      enum: [Draft, Pending, Approved, Rejected]
+
+    # ── Common ────────────────────────────────────────────────────────
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+          description: Human-readable error message.
+        details:
+          type: string
+          description: Additional error details.
+        traceId:
+          type: string
+          description: Correlation ID for tracing.
+
+    # ── Messages ──────────────────────────────────────────────────────
+
+    SendMessageRequest:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: string
+          description: Recipient phone number (E.164) or channel-specific identifier.
+          example: "+1234567890"
+        from:
+          type: string
+          description: Sender ID. If omitted, uses the default sender for the channel.
+        body:
+          type: string
+          description: |
+            Simple text body. Use this for plain text messages.
+            If both `body` and `content` are provided, `content` takes precedence.
+            If only `body` is provided without `channel`, defaults to SMS.
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        dispatch:
+          type: array
+          items:
+            $ref: '#/components/schemas/DispatchStep'
+          description: |
+            Dispatch chain for multi-channel fallback/broadcast.
+            When set, `channel` and `body`/`content` are ignored; each step defines its own.
+        callbackUrl:
+          type: string
+          format: uri
+          description: Callback URL for delivery status updates on this message.
+        ttlSeconds:
+          type: integer
+          description: TTL in seconds. Message expires if not delivered within this time.
+        priority:
+          $ref: '#/components/schemas/Priority'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Arbitrary metadata key-value pairs attached to the message.
+        correlationId:
+          type: string
+          description: Correlation ID for idempotency and tracing.
+
+    DispatchStep:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        body:
+          type: string
+          description: Override text body for this channel.
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        from:
+          type: string
+          description: Override sender for this channel.
+        timeoutSeconds:
+          type: integer
+          description: Timeout in seconds before falling back to next step.
+
+    MessageContent:
+      type: object
+      required: [type]
+      description: |
+        Rich message content using a flat discriminator pattern. The `type` field determines
+        which optional fields are relevant:
+
+        | Type | Key Fields |
+        |------|-----------|
+        | `text` | `text` |
+        | `media` | `mediaUrl`, `mediaType`, `caption`, `fileName`, `thumbnailUrl` |
+        | `card` | `title`, `description`, `mediaUrl`, `actions` |
+        | `carousel` | `cards` |
+        | `location` | `latitude`, `longitude`, `locationLabel` |
+        | `template` | `templateId`, `languageCode`, `templateParameters` |
+        | `choices` | `text`, `actions` |
+        | `list` | `sections` |
+        | `contact_info` | `displayName`, `phoneNumber`, `email` |
+      properties:
+        type:
+          type: string
+          enum: [text, media, card, carousel, location, template, choices, list, contact_info]
+          description: Content type discriminator.
+        # Text
+        text:
+          type: string
+          description: Text body (for `text`, `choices`).
+        # Media
+        mediaUrl:
+          type: string
+          format: uri
+          description: Media URL (for `media`, `card`).
+        mediaType:
+          type: string
+          description: MIME type of media.
+        caption:
+          type: string
+          description: Caption for media.
+        fileName:
+          type: string
+          description: File name for document media.
+        thumbnailUrl:
+          type: string
+          format: uri
+          description: Thumbnail URL for video/document previews.
+        # Card
+        title:
+          type: string
+          description: Card title (for `card`).
+        description:
+          type: string
+          description: Card description (for `card`).
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CardAction'
+          description: Interactive actions/buttons (for `card`, `choices`).
+        # Carousel
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageContent'
+          description: List of cards (for `carousel`).
+        # Location
+        latitude:
+          type: number
+          format: double
+          description: Latitude (for `location`).
+        longitude:
+          type: number
+          format: double
+          description: Longitude (for `location`).
+        locationLabel:
+          type: string
+          description: Location label/name.
+        # Template
+        templateId:
+          type: string
+          description: Template reference ID.
+        languageCode:
+          type: string
+          description: Language code for template (e.g. `en`, `sv`).
+        templateParameters:
+          type: object
+          additionalProperties:
+            type: string
+          description: Template parameter values.
+        # List
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListSection'
+          description: List sections (for `list`).
+        # Contact Info
+        displayName:
+          type: string
+          description: Contact display name (for `contact_info`).
+        phoneNumber:
+          type: string
+          description: Contact phone number (for `contact_info`).
+        email:
+          type: string
+          format: email
+          description: Contact email (for `contact_info`).
+        # Extension
+        extra:
+          type: object
+          additionalProperties: true
+          description: Additional channel-specific payload for advanced use cases.
+
+    CardAction:
+      type: object
+      required: [type, title]
+      properties:
+        type:
+          type: string
+          enum: [reply, url, call, location, calendar]
+          description: Action type.
+        title:
+          type: string
+          description: Button display text.
+        payload:
+          type: string
+          description: Payload returned on tap (for `reply`).
+        url:
+          type: string
+          format: uri
+          description: URL to open (for `url`).
+        phoneNumber:
+          type: string
+          description: Phone number to call (for `call`).
+
+    ListSection:
+      type: object
+      required: [title, items]
+      properties:
+        title:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListItem'
+
+    ListItem:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+
+    MessageResponse:
+      type: object
+      required: [messageId, to, channel, status, createdAt]
+      properties:
+        messageId:
+          type: string
+          description: Unique message identifier.
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        to:
+          type: string
+          description: Recipient identifier.
+        from:
+          type: string
+          description: Sender identifier.
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when the message was accepted.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Timestamp of the last status update.
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        errorMessage:
+          type: string
+          description: Error details if the message failed.
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        correlationId:
+          type: string
+
+    BatchSendRequest:
+      type: object
+      description: |
+        Supports two mutually exclusive patterns:
+        - **Pattern 1:** Provide `messages` — a list of individual send requests.
+        - **Pattern 2:** Provide `to` (list of recipients) with shared `body`/`content`/`channel`.
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/SendMessageRequest'
+          description: "Pattern 1: Individual message requests."
+        to:
+          type: array
+          items:
+            type: string
+          description: "Pattern 2: List of recipient identifiers."
+        from:
+          type: string
+          description: "Pattern 2: Shared sender ID."
+        body:
+          type: string
+          description: "Pattern 2: Shared text body."
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        callbackUrl:
+          type: string
+          format: uri
+        ttlSeconds:
+          type: integer
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    BatchMessageResponse:
+      type: object
+      required: [batchId, totalRecipients, accepted, rejected, messages]
+      properties:
+        batchId:
+          type: string
+          description: Unique batch identifier.
+        totalRecipients:
+          type: integer
+        accepted:
+          type: integer
+          description: Number of messages accepted.
+        rejected:
+          type: integer
+          description: Number of messages rejected.
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResponse'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchError'
+
+    BatchError:
+      type: object
+      required: [to, code, message]
+      properties:
+        to:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+
+    # ── Channels ──────────────────────────────────────────────────────
+
+    ChannelInfo:
+      type: object
+      required: [id, displayName, channel]
+      properties:
+        id:
+          type: string
+          description: Channel slug (e.g. `sms`, `whatsapp`).
+        displayName:
+          type: string
+          description: Human-readable channel name.
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        supportsRichCards:
+          type: boolean
+        supportsCarousel:
+          type: boolean
+        supportsMedia:
+          type: boolean
+        supportsLocation:
+          type: boolean
+        supportsChoices:
+          type: boolean
+        supportsTemplates:
+          type: boolean
+        supportsReadReceipts:
+          type: boolean
+        maxTextLength:
+          type: integer
+          description: Maximum text length for this channel.
+        supportedContentTypes:
+          type: array
+          items:
+            type: string
+          description: List of supported content types (e.g. `text`, `media`, `card`).
+        defaultSender:
+          type: string
+          description: Default sender identity configured for this channel.
+
+    # ── Dispatch ──────────────────────────────────────────────────────
+
+    DispatchSettings:
+      type: object
+      required: [strategy, routes]
+      properties:
+        strategy:
+          $ref: '#/components/schemas/DispatchStrategy'
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DispatchRoute'
+          minItems: 1
+        timeoutPerRoute:
+          type: integer
+          description: Seconds to wait per route before trying next (failover only).
+        continueAfterSuccess:
+          type: boolean
+          description: Continue trying routes after first success (failover only). Default `false`.
+
+    DispatchRoute:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        body:
+          type: string
+          description: Override message body for this channel.
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        from:
+          type: string
+          description: Override sender for this channel.
+        weight:
+          type: integer
+          default: 1
+          description: Weight for round-robin distribution.
+        maxCost:
+          type: number
+          format: decimal
+          description: Maximum cost threshold (cost-optimized strategy).
+
+    DispatchRule:
+      type: object
+      required: [name, settings]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        settings:
+          $ref: '#/components/schemas/DispatchSettings'
+        active:
+          type: boolean
+          default: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateDispatchRuleRequest:
+      type: object
+      required: [name, settings]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        settings:
+          $ref: '#/components/schemas/DispatchSettings'
+
+    UpdateDispatchRuleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        settings:
+          $ref: '#/components/schemas/DispatchSettings'
+        active:
+          type: boolean
+
+    # ── Templates ─────────────────────────────────────────────────────
+
+    Template:
+      type: object
+      required: [name, channel, body]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        body:
+          type: string
+          description: Template body with `{{parameter}}` placeholders.
+        parameterNames:
+          type: array
+          items:
+            type: string
+          description: List of parameter names used in the template body.
+        language:
+          type: string
+          description: Language code (e.g. `en`, `sv`).
+        status:
+          $ref: '#/components/schemas/TemplateStatus'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateTemplateRequest:
+      type: object
+      required: [name, channel, body]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        body:
+          type: string
+        parameterNames:
+          type: array
+          items:
+            type: string
+        language:
+          type: string
+
+    UpdateTemplateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        body:
+          type: string
+        parameterNames:
+          type: array
+          items:
+            type: string
+        language:
+          type: string
+
+    # ── Contacts ──────────────────────────────────────────────────────
+
+    Contact:
+      type: object
+      required: [displayName, channelIdentities]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        externalId:
+          type: string
+          description: External identifier from your system.
+        channelIdentities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelIdentity'
+          minItems: 1
+        email:
+          type: string
+          format: email
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        language:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ChannelIdentity:
+      type: object
+      required: [channel, identity]
+      properties:
+        channel:
+          $ref: '#/components/schemas/MessageChannel'
+        identity:
+          type: string
+          description: Channel-specific identifier (phone number, user ID, etc.).
+        appId:
+          type: string
+          description: Optional app ID for channels that require it.
+
+    CreateContactRequest:
+      type: object
+      required: [displayName, channelIdentities]
+      properties:
+        displayName:
+          type: string
+        externalId:
+          type: string
+        channelIdentities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelIdentity'
+          minItems: 1
+        email:
+          type: string
+          format: email
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        language:
+          type: string
+
+    UpdateContactRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+        externalId:
+          type: string
+        channelIdentities:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelIdentity'
+        email:
+          type: string
+          format: email
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        language:
+          type: string
+
+    # ── Webhooks ──────────────────────────────────────────────────────
+
+    WebhookRegistration:
+      type: object
+      required: [url]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          format: uri
+          description: The URL to deliver events to.
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - message.delivered
+              - message.read
+              - message.failed
+              - message.submitted
+              - dispatch.completed
+              - dispatch.failed
+          description: Event types this webhook subscribes to. If empty/null, receives all events.
+        secret:
+          type: string
+          description: Shared secret for HMAC-SHA256 signature verification.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Custom headers included in webhook deliveries.
+        active:
+          type: boolean
+          default: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        active:
+          type: boolean
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+
+    WebhookTestResult:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          description: Whether the test delivery was successful.
+        statusCode:
+          type: integer
+          description: HTTP status code returned by the webhook endpoint.
+        responseBody:
+          type: string
+          description: Response body from the webhook endpoint.
+        errorMessage:
+          type: string
+          description: Error message if the test failed.
+        latencyMs:
+          type: integer
+          format: int64
+          description: Round-trip latency in milliseconds.
+
+    # ── Webhook Events (Callback Payloads) ────────────────────────────
+
+    WebhookEvent:
+      type: object
+      required: [eventId, eventType, timestamp]
+      description: Base webhook event payload delivered to registered endpoints.
+      properties:
+        eventId:
+          type: string
+        eventType:
+          type: string
+          enum:
+            - message.delivered
+            - message.read
+            - message.failed
+            - message.submitted
+            - dispatch.completed
+            - dispatch.failed
+        timestamp:
+          type: string
+          format: date-time
+        projectId:
+          type: string
+      discriminator:
+        propertyName: eventType
+        mapping:
+          message.delivered: '#/components/schemas/MessageDeliveredEvent'
+          message.read: '#/components/schemas/MessageReadEvent'
+          message.failed: '#/components/schemas/MessageFailedEvent'
+          message.submitted: '#/components/schemas/MessageSubmittedEvent'
+          dispatch.completed: '#/components/schemas/DispatchCompletedEvent'
+          dispatch.failed: '#/components/schemas/DispatchFailedEvent'
+
+    MessageDeliveredEvent:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEvent'
+        - type: object
+          required: [messageId, channel, to]
+          properties:
+            messageId:
+              type: string
+            channel:
+              $ref: '#/components/schemas/MessageChannel'
+            to:
+              type: string
+            from:
+              type: string
+
+    MessageReadEvent:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEvent'
+        - type: object
+          required: [messageId, channel, to]
+          properties:
+            messageId:
+              type: string
+            channel:
+              $ref: '#/components/schemas/MessageChannel'
+            to:
+              type: string
+            from:
+              type: string
+
+    MessageFailedEvent:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEvent'
+        - type: object
+          required: [messageId, channel, to, errorCode]
+          properties:
+            messageId:
+              type: string
+            channel:
+              $ref: '#/components/schemas/MessageChannel'
+            to:
+              type: string
+            from:
+              type: string
+            errorCode:
+              type: string
+            errorMessage:
+              type: string
+
+    MessageSubmittedEvent:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEvent'
+        - type: object
+          required: [messageId, channel, to]
+          properties:
+            messageId:
+              type: string
+            channel:
+              $ref: '#/components/schemas/MessageChannel'
+            to:
+              type: string
+            from:
+              type: string
+
+    DispatchCompletedEvent:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEvent'
+        - type: object
+          required: [dispatchId, messageId, successfulChannel]
+          properties:
+            dispatchId:
+              type: string
+            messageId:
+              type: string
+            successfulChannel:
+              $ref: '#/components/schemas/MessageChannel'
+            routesAttempted:
+              type: integer
+
+    DispatchFailedEvent:
+      allOf:
+        - $ref: '#/components/schemas/WebhookEvent'
+        - type: object
+          required: [dispatchId, messageId]
+          properties:
+            dispatchId:
+              type: string
+            messageId:
+              type: string
+            routesAttempted:
+              type: integer
+            lastErrorCode:
+              type: string
+            lastErrorMessage:
+              type: string
+
+    # ── Pagination Wrappers ───────────────────────────────────────────
+
+    PaginatedMessageResponse:
+      type: object
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResponse'
+        nextCursor:
+          type: string
+          description: Cursor for the next page, or null if last page.
+        totalCount:
+          type: integer
+          description: Total number of items across all pages (if known).
+        pageSize:
+          type: integer
+
+    PaginatedDispatchRuleResponse:
+      type: object
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DispatchRule'
+        nextCursor:
+          type: string
+        totalCount:
+          type: integer
+        pageSize:
+          type: integer
+
+    PaginatedTemplateResponse:
+      type: object
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Template'
+        nextCursor:
+          type: string
+        totalCount:
+          type: integer
+        pageSize:
+          type: integer
+
+    PaginatedContactResponse:
+      type: object
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Contact'
+        nextCursor:
+          type: string
+        totalCount:
+          type: integer
+        pageSize:
+          type: integer
+
+    PaginatedWebhookResponse:
+      type: object
+      required: [items, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookRegistration'
+        nextCursor:
+          type: string
+        totalCount:
+          type: integer
+        pageSize:
+          type: integer
