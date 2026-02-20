@@ -15,7 +15,7 @@ info:
     | 1 | SMS (simplest) | `{ "to": "+1234567890", "body": "Hello" }` |
     | 2 | Channel selection | `{ "to": "+1234567890", "channel": "whatsapp", "body": "Hello" }` |
     | 3 | Rich content | `{ "to": "+1234567890", "channel": "rcs", "content": { "type": "card", ... } }` |
-    | 4 | Multi-channel dispatch | `{ "to": "+1234567890", "dispatch": [{ "channel": "rcs", ... }, { "channel": "sms", ... }] }` |
+    | 4 | Multi-channel routing | `{ "to": "+1234567890", "routes": [{ "channel": "rcs", ... }, { "channel": "sms", ... }] }` |
 
     ## Authentication
 
@@ -50,12 +50,10 @@ tags:
     description: Send, retrieve, and manage messages across channels.
   - name: Channels
     description: Discover available messaging channels and their capabilities.
-  - name: Dispatch
-    description: Manage reusable multi-channel dispatch rules.
+  - name: Routing Rules
+    description: Manage reusable multi-channel routing rules.
   - name: Templates
     description: Manage message templates for channel-specific content.
-  - name: Contacts
-    description: Manage contacts and their channel identities.
   - name: Webhooks
     description: Register and manage webhook endpoints for event notifications.
 
@@ -84,9 +82,9 @@ paths:
         { "to": "+1234567890", "channel": "rcs", "content": { "type": "card", "title": "Welcome", "description": "..." } }
         ```
 
-        **Level 4 — Multi-channel dispatch:**
+        **Level 4 — Multi-channel routing:**
         ```json
-        { "to": "+1234567890", "dispatch": [{ "channel": "rcs", "body": "Hello" }, { "channel": "sms", "body": "Hello" }] }
+        { "to": "+1234567890", "routes": [{ "channel": "rcs", "body": "Hello" }, { "channel": "sms", "body": "Hello" }] }
         ```
       tags: [Messages]
       requestBody:
@@ -124,11 +122,11 @@ paths:
                       - type: reply
                         title: Contact Support
                         payload: support_request
-              dispatch-failover:
+              routes-failover:
                 summary: Level 4 — RCS → SMS failover
                 value:
                   to: "+1234567890"
-                  dispatch:
+                  routes:
                     - channel: Rcs
                       body: "Rich message on RCS"
                       timeoutSeconds: 30
@@ -346,27 +344,27 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  # ── Dispatch Rules ────────────────────────────────────────────────────
+  # ── Routing Rules ────────────────────────────────────────────────────
 
-  /v1/dispatch:
+  /v1/routing-rules:
     post:
-      operationId: createDispatchRule
-      summary: Create a dispatch rule
+      operationId: createRoutingRule
+      summary: Create a routing rule
       description: |
-        Create a reusable dispatch rule with a routing strategy and channel routes.
+        Create a reusable routing rule with a routing strategy and channel routes.
 
         **Strategies:**
         - `Failover` — Try routes in order until one succeeds.
         - `Broadcast` — Send on all routes simultaneously.
         - `RoundRobin` — Distribute across routes evenly.
         - `CostOptimized` — Pick the cheapest available route.
-      tags: [Dispatch]
+      tags: [Routing Rules]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateDispatchRuleRequest'
+              $ref: '#/components/schemas/CreateRoutingRuleRequest'
             examples:
               rcs-sms-failover:
                 summary: RCS → SMS failover rule
@@ -393,51 +391,51 @@ paths:
                       - channel: WhatsApp
       responses:
         '201':
-          description: Dispatch rule created.
+          description: Routing rule created.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DispatchRule'
+                $ref: '#/components/schemas/RoutingRule'
         '400':
           $ref: '#/components/responses/BadRequest'
 
     get:
-      operationId: listDispatchRules
-      summary: List dispatch rules
-      tags: [Dispatch]
+      operationId: listRoutingRules
+      summary: List routing rules
+      tags: [Routing Rules]
       parameters:
         - $ref: '#/components/parameters/cursor'
         - $ref: '#/components/parameters/pageSize'
       responses:
         '200':
-          description: Paginated list of dispatch rules.
+          description: Paginated list of routing rules.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedDispatchRuleResponse'
+                $ref: '#/components/schemas/PaginatedRoutingRuleResponse'
 
-  /v1/dispatch/{id}:
+  /v1/routing-rules/{id}:
     get:
-      operationId: getDispatchRule
-      summary: Get a dispatch rule
-      tags: [Dispatch]
+      operationId: getRoutingRule
+      summary: Get a routing rule
+      tags: [Routing Rules]
       parameters:
         - $ref: '#/components/parameters/resourceId'
       responses:
         '200':
-          description: Dispatch rule details.
+          description: Routing rule details.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DispatchRule'
+                $ref: '#/components/schemas/RoutingRule'
         '404':
           $ref: '#/components/responses/NotFound'
 
     patch:
-      operationId: updateDispatchRule
-      summary: Update a dispatch rule
+      operationId: updateRoutingRule
+      summary: Update a routing rule
       description: Only provided fields are modified.
-      tags: [Dispatch]
+      tags: [Routing Rules]
       parameters:
         - $ref: '#/components/parameters/resourceId'
       requestBody:
@@ -445,26 +443,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateDispatchRuleRequest'
+              $ref: '#/components/schemas/UpdateRoutingRuleRequest'
       responses:
         '200':
-          description: Updated dispatch rule.
+          description: Updated routing rule.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DispatchRule'
+                $ref: '#/components/schemas/RoutingRule'
         '404':
           $ref: '#/components/responses/NotFound'
 
     delete:
-      operationId: deleteDispatchRule
-      summary: Delete a dispatch rule
-      tags: [Dispatch]
+      operationId: deleteRoutingRule
+      summary: Delete a routing rule
+      tags: [Routing Rules]
       parameters:
         - $ref: '#/components/parameters/resourceId'
       responses:
         '204':
-          description: Dispatch rule deleted.
+          description: Routing rule deleted.
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -568,146 +566,6 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  # ── Contacts ──────────────────────────────────────────────────────────
-
-  /v1/contacts:
-    post:
-      operationId: createContact
-      summary: Create a contact
-      description: Create a new contact with channel identities.
-      tags: [Contacts]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateContactRequest'
-            examples:
-              multi-channel:
-                summary: Contact with SMS and WhatsApp
-                value:
-                  displayName: Alice Smith
-                  externalId: customer-42
-                  channelIdentities:
-                    - channel: Sms
-                      identity: "+11234567890"
-                    - channel: WhatsApp
-                      identity: "+11234567890"
-                  email: alice@example.com
-                  language: en
-      responses:
-        '201':
-          description: Contact created.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Contact'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
-    get:
-      operationId: listContacts
-      summary: List contacts
-      tags: [Contacts]
-      parameters:
-        - $ref: '#/components/parameters/cursor'
-        - $ref: '#/components/parameters/pageSize'
-      responses:
-        '200':
-          description: Paginated list of contacts.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedContactResponse'
-
-  /v1/contacts/{contactId}:
-    get:
-      operationId: getContact
-      summary: Get a contact
-      tags: [Contacts]
-      parameters:
-        - name: contactId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Contact details.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Contact'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-    patch:
-      operationId: updateContact
-      summary: Update a contact
-      description: Only provided fields are modified.
-      tags: [Contacts]
-      parameters:
-        - name: contactId
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateContactRequest'
-      responses:
-        '200':
-          description: Updated contact.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Contact'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-    delete:
-      operationId: deleteContact
-      summary: Delete a contact
-      tags: [Contacts]
-      parameters:
-        - name: contactId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '204':
-          description: Contact deleted.
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /v1/contacts/{contactId}/messages:
-    get:
-      operationId: getContactMessages
-      summary: Get message history for a contact
-      description: Retrieve message history across all channel identities for a contact.
-      tags: [Contacts]
-      parameters:
-        - name: contactId
-          in: path
-          required: true
-          schema:
-            type: string
-        - $ref: '#/components/parameters/cursor'
-        - $ref: '#/components/parameters/pageSize'
-      responses:
-        '200':
-          description: Paginated message history.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedMessageResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
   # ── Webhooks ──────────────────────────────────────────────────────────
 
   /v1/webhooks:
@@ -722,8 +580,8 @@ paths:
         - `message.read` — Message read by recipient
         - `message.failed` — Message delivery failed
         - `message.submitted` — Message submitted to channel provider
-        - `dispatch.completed` — Dispatch routing completed successfully
-        - `dispatch.failed` — All dispatch routes exhausted
+        - `routing.completed` — Routing completed successfully
+        - `routing.failed` — All routing routes exhausted
 
         Webhook deliveries include an HMAC-SHA256 signature in the `X-Signature` header
         for verification using the shared secret.
@@ -898,7 +756,7 @@ components:
             $ref: '#/components/schemas/ApiError'
           example:
             code: MISSING_CONTENT
-            message: "Provide at least one of: body, content, or dispatch."
+            message: "Provide at least one of: body, content, or routes."
     NotFound:
       description: Resource not found.
       content:
@@ -956,7 +814,7 @@ components:
       enum: [Low, Normal, High]
       default: Normal
 
-    DispatchStrategy:
+    RoutingStrategy:
       type: string
       enum: [Failover, Broadcast, RoundRobin, CostOptimized]
       description: |
@@ -1011,13 +869,16 @@ components:
           $ref: '#/components/schemas/MessageChannel'
         content:
           $ref: '#/components/schemas/MessageContent'
-        dispatch:
+        routes:
           type: array
           items:
-            $ref: '#/components/schemas/DispatchStep'
+            $ref: '#/components/schemas/MessageRoute'
           description: |
-            Dispatch chain for multi-channel fallback/broadcast.
-            When set, `channel` and `body`/`content` are ignored; each step defines its own.
+            Route chain for multi-channel fallback/broadcast.
+            When set, `channel` and `body`/`content` are ignored; each route defines its own.
+        routingRule:
+          type: string
+          description: Reference to a reusable routing rule by name or ID.
         callbackUrl:
           type: string
           format: uri
@@ -1036,7 +897,7 @@ components:
           type: string
           description: Correlation ID for idempotency and tracing.
 
-    DispatchStep:
+    MessageRoute:
       type: object
       required: [channel]
       properties:
@@ -1052,7 +913,7 @@ components:
           description: Override sender for this channel.
         timeoutSeconds:
           type: integer
-          description: Timeout in seconds before falling back to next step.
+          description: Timeout in seconds before falling back to next route.
 
     MessageContent:
       type: object
@@ -1359,18 +1220,18 @@ components:
           type: string
           description: Default sender identity configured for this channel.
 
-    # ── Dispatch ──────────────────────────────────────────────────────
+    # ── Routing Rules ────────────────────────────────────────────────
 
-    DispatchSettings:
+    RoutingSettings:
       type: object
       required: [strategy, routes]
       properties:
         strategy:
-          $ref: '#/components/schemas/DispatchStrategy'
+          $ref: '#/components/schemas/RoutingStrategy'
         routes:
           type: array
           items:
-            $ref: '#/components/schemas/DispatchRoute'
+            $ref: '#/components/schemas/ChannelRoute'
           minItems: 1
         timeoutPerRoute:
           type: integer
@@ -1379,7 +1240,7 @@ components:
           type: boolean
           description: Continue trying routes after first success (failover only). Default `false`.
 
-    DispatchRoute:
+    ChannelRoute:
       type: object
       required: [channel]
       properties:
@@ -1402,7 +1263,7 @@ components:
           format: decimal
           description: Maximum cost threshold (cost-optimized strategy).
 
-    DispatchRule:
+    RoutingRule:
       type: object
       required: [name, settings]
       properties:
@@ -1413,7 +1274,7 @@ components:
         description:
           type: string
         settings:
-          $ref: '#/components/schemas/DispatchSettings'
+          $ref: '#/components/schemas/RoutingSettings'
         active:
           type: boolean
           default: true
@@ -1424,7 +1285,7 @@ components:
           type: string
           format: date-time
 
-    CreateDispatchRuleRequest:
+    CreateRoutingRuleRequest:
       type: object
       required: [name, settings]
       properties:
@@ -1433,9 +1294,9 @@ components:
         description:
           type: string
         settings:
-          $ref: '#/components/schemas/DispatchSettings'
+          $ref: '#/components/schemas/RoutingSettings'
 
-    UpdateDispatchRuleRequest:
+    UpdateRoutingRuleRequest:
       type: object
       properties:
         name:
@@ -1443,7 +1304,7 @@ components:
         description:
           type: string
         settings:
-          $ref: '#/components/schemas/DispatchSettings'
+          $ref: '#/components/schemas/RoutingSettings'
         active:
           type: boolean
 
@@ -1516,97 +1377,6 @@ components:
         language:
           type: string
 
-    # ── Contacts ──────────────────────────────────────────────────────
-
-    Contact:
-      type: object
-      required: [displayName, channelIdentities]
-      properties:
-        id:
-          type: string
-        displayName:
-          type: string
-        externalId:
-          type: string
-          description: External identifier from your system.
-        channelIdentities:
-          type: array
-          items:
-            $ref: '#/components/schemas/ChannelIdentity'
-          minItems: 1
-        email:
-          type: string
-          format: email
-        metadata:
-          type: object
-          additionalProperties:
-            type: string
-        language:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    ChannelIdentity:
-      type: object
-      required: [channel, identity]
-      properties:
-        channel:
-          $ref: '#/components/schemas/MessageChannel'
-        identity:
-          type: string
-          description: Channel-specific identifier (phone number, user ID, etc.).
-        appId:
-          type: string
-          description: Optional app ID for channels that require it.
-
-    CreateContactRequest:
-      type: object
-      required: [displayName, channelIdentities]
-      properties:
-        displayName:
-          type: string
-        externalId:
-          type: string
-        channelIdentities:
-          type: array
-          items:
-            $ref: '#/components/schemas/ChannelIdentity'
-          minItems: 1
-        email:
-          type: string
-          format: email
-        metadata:
-          type: object
-          additionalProperties:
-            type: string
-        language:
-          type: string
-
-    UpdateContactRequest:
-      type: object
-      properties:
-        displayName:
-          type: string
-        externalId:
-          type: string
-        channelIdentities:
-          type: array
-          items:
-            $ref: '#/components/schemas/ChannelIdentity'
-        email:
-          type: string
-          format: email
-        metadata:
-          type: object
-          additionalProperties:
-            type: string
-        language:
-          type: string
-
     # ── Webhooks ──────────────────────────────────────────────────────
 
     WebhookRegistration:
@@ -1628,8 +1398,8 @@ components:
               - message.read
               - message.failed
               - message.submitted
-              - dispatch.completed
-              - dispatch.failed
+              - routing.completed
+              - routing.failed
           description: Event types this webhook subscribes to. If empty/null, receives all events.
         secret:
           type: string
@@ -1723,8 +1493,8 @@ components:
             - message.read
             - message.failed
             - message.submitted
-            - dispatch.completed
-            - dispatch.failed
+            - routing.completed
+            - routing.failed
         timestamp:
           type: string
           format: date-time
@@ -1737,8 +1507,8 @@ components:
           message.read: '#/components/schemas/MessageReadEvent'
           message.failed: '#/components/schemas/MessageFailedEvent'
           message.submitted: '#/components/schemas/MessageSubmittedEvent'
-          dispatch.completed: '#/components/schemas/DispatchCompletedEvent'
-          dispatch.failed: '#/components/schemas/DispatchFailedEvent'
+          routing.completed: '#/components/schemas/RoutingCompletedEvent'
+          routing.failed: '#/components/schemas/RoutingFailedEvent'
 
     MessageDeliveredEvent:
       allOf:
@@ -1804,14 +1574,12 @@ components:
             from:
               type: string
 
-    DispatchCompletedEvent:
+    RoutingCompletedEvent:
       allOf:
         - $ref: '#/components/schemas/WebhookEvent'
         - type: object
-          required: [dispatchId, messageId, successfulChannel]
+          required: [messageId, successfulChannel]
           properties:
-            dispatchId:
-              type: string
             messageId:
               type: string
             successfulChannel:
@@ -1819,14 +1587,12 @@ components:
             routesAttempted:
               type: integer
 
-    DispatchFailedEvent:
+    RoutingFailedEvent:
       allOf:
         - $ref: '#/components/schemas/WebhookEvent'
         - type: object
-          required: [dispatchId, messageId]
+          required: [messageId]
           properties:
-            dispatchId:
-              type: string
             messageId:
               type: string
             routesAttempted:
@@ -1855,14 +1621,14 @@ components:
         pageSize:
           type: integer
 
-    PaginatedDispatchRuleResponse:
+    PaginatedRoutingRuleResponse:
       type: object
       required: [items, pageSize]
       properties:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/DispatchRule'
+            $ref: '#/components/schemas/RoutingRule'
         nextCursor:
           type: string
         totalCount:
@@ -1878,21 +1644,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Template'
-        nextCursor:
-          type: string
-        totalCount:
-          type: integer
-        pageSize:
-          type: integer
-
-    PaginatedContactResponse:
-      type: object
-      required: [items, pageSize]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/Contact'
         nextCursor:
           type: string
         totalCount:
