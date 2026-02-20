@@ -1,9 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
+using Sinch.MessageRouter.Core.Common;
 using Sinch.MessageRouter.Core.Messages;
 using Sinch.MessageRouter.Gateway.Services;
 
 namespace Sinch.MessageRouter.Gateway.Controllers;
 
+/// <summary>
+/// Handles message sending, retrieval, and revocation.
+/// Provides a simplified interface over the Sinch Conversation API.
+/// </summary>
 [ApiController]
 [Route("v1/messages")]
 public class MessagesController : ControllerBase
@@ -18,64 +23,131 @@ public class MessagesController : ControllerBase
     }
 
     /// <summary>
-    /// Send a message. Simplest: { "to": "+1234567890", "body": "Hello" }
+    /// Send a message. Supports progressive complexity:
+    ///   Level 1 (SMS):      { "to": "+1234567890", "body": "Hello" }
+    ///   Level 2 (channel):  { "to": "+1234567890", "channel": "whatsapp", "body": "Hello" }
+    ///   Level 3 (rich):     { "to": "+1234567890", "channel": "rcs", "content": { "type": "card", ... } }
+    ///   Level 4 (dispatch): { "to": "+1234567890", "dispatch": [{ "channel": "rcs", ... }, { "channel": "sms", ... }] }
     /// </summary>
     [HttpPost]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Send([FromBody] SendMessageRequest request, CancellationToken ct)
     {
         if (request.Body is null && request.Content is null && request.Dispatch is null)
-            return BadRequest(new ProblemDetails
+        {
+            return BadRequest(new ApiError
             {
-                Title = "Missing message content",
-                Detail = "Provide at least one of: body, content, or dispatch.",
-                Status = 400
+                Code = "MISSING_CONTENT",
+                Message = "Provide at least one of: body, content, or dispatch."
             });
+        }
+
+        _logger.LogInformation(
+            "Sending message to {To} via {Channel}",
+            request.To,
+            request.Dispatch is { Count: > 0 } ? "dispatch" : request.EffectiveChannel.ToString());
 
         var response = await _messageService.SendAsync(request, ct);
         return CreatedAtAction(nameof(Get), new { messageId = response.MessageId }, response);
     }
 
+    /// <summary>
+    /// Send a batch of messages. Supports two patterns:
+    ///   Pattern 1: { "messages": [{ "to": "...", "body": "..." }, ...] }
+    ///   Pattern 2: { "to": ["+1...", "+1..."], "body": "Hello", "channel": "sms" }
+    /// </summary>
     [HttpPost("batch")]
-    [ProducesResponseType(typeof(BatchMessageResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(BatchMessageResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> SendBatch([FromBody] BatchSendRequest request, CancellationToken ct)
     {
+        _logger.LogInformation("Processing batch message request");
         var response = await _messageService.SendBatchAsync(request, ct);
-        return AcceptedAtAction(nameof(List), response);
+        return Ok(response);
     }
 
+    /// <summary>
+    /// List messages with optional filtering and cursor-based pagination.
+    /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(MessageListResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PaginatedResponse<MessageResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List(
-        [FromQuery] MessageStatus? status, [FromQuery] MessageChannel? channel,
-        [FromQuery] string? to, [FromQuery] string? from,
-        [FromQuery] DateTimeOffset? after, [FromQuery] DateTimeOffset? before,
-        [FromQuery] string? cursor, [FromQuery] int pageSize = 20, CancellationToken ct = default)
+        [FromQuery] MessageStatus? status,
+        [FromQuery] MessageChannel? channel,
+        [FromQuery] string? from,
+        [FromQuery] string? to,
+        [FromQuery] DateTimeOffset? after,
+        [FromQuery] DateTimeOffset? before,
+        [FromQuery] string? cursor,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
     {
         var query = new MessageListQuery
         {
-            Status = status, Channel = channel, To = to, From = from,
-            After = after, Before = before, Cursor = cursor,
+            Status = status,
+            Channel = channel,
+            From = from,
+            To = to,
+            After = after,
+            Before = before,
+            Cursor = cursor,
             PageSize = Math.Clamp(pageSize, 1, 100)
         };
-        return Ok(await _messageService.ListAsync(query, ct));
+
+        var result = await _messageService.ListAsync(query, ct);
+        return Ok(result);
     }
 
+    /// <summary>
+    /// Get a message by its ID.
+    /// </summary>
     [HttpGet("{messageId}")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Get(string messageId, CancellationToken ct)
     {
         var response = await _messageService.GetAsync(messageId, ct);
-        return response is null ? NotFound() : Ok(response);
+        if (response is null)
+        {
+            return NotFound(new ApiError
+            {
+                Code = "NOT_FOUND",
+                Message = $"Message '{messageId}' not found."
+            });
+        }
+        return Ok(response);
     }
 
+    /// <summary>
+    /// Revoke (cancel) a message. Only messages in Queued status can be revoked.
+    /// </summary>
     [HttpDelete("{messageId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Revoke(string messageId, CancellationToken ct)
     {
-        return await _messageService.RevokeAsync(messageId, ct) ? NoContent() : NotFound();
+        var message = await _messageService.GetAsync(messageId, ct);
+        if (message is null)
+        {
+            return NotFound(new ApiError
+            {
+                Code = "NOT_FOUND",
+                Message = $"Message '{messageId}' not found."
+            });
+        }
+
+        var revoked = await _messageService.RevokeAsync(messageId, ct);
+        if (!revoked)
+        {
+            return Conflict(new ApiError
+            {
+                Code = "CANNOT_REVOKE",
+                Message = $"Message '{messageId}' cannot be revoked. Only messages in 'Queued' status can be revoked."
+            });
+        }
+
+        return NoContent();
     }
 }

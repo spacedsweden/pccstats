@@ -1,57 +1,115 @@
 using Microsoft.AspNetCore.Mvc;
+using Sinch.MessageRouter.Core.Common;
 using Sinch.MessageRouter.Core.Dispatch;
-using System.Collections.Concurrent;
+using Sinch.MessageRouter.Gateway.Services;
 
 namespace Sinch.MessageRouter.Gateway.Controllers;
 
+/// <summary>
+/// Manages dispatch rules for multi-channel message routing.
+/// Dispatch rules define strategies (failover, broadcast, round-robin, cost-optimized)
+/// that can be referenced when sending messages.
+/// </summary>
 [ApiController]
 [Route("v1/dispatch")]
 public class DispatchController : ControllerBase
 {
-    private static readonly ConcurrentDictionary<string, DispatchRule> Rules = new();
+    private readonly IDispatchService _dispatchService;
+    private readonly ILogger<DispatchController> _logger;
 
+    public DispatchController(IDispatchService dispatchService, ILogger<DispatchController> logger)
+    {
+        _dispatchService = dispatchService;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Create a new dispatch rule with a routing strategy and channel routes.
+    /// </summary>
     [HttpPost]
     [ProducesResponseType(typeof(DispatchRule), StatusCodes.Status201Created)]
-    public IActionResult Create([FromBody] CreateDispatchRuleRequest request)
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Create([FromBody] CreateDispatchRuleRequest request, CancellationToken ct)
     {
-        var rule = new DispatchRule
-        {
-            Id = Guid.NewGuid().ToString("N")[..16],
-            Name = request.Name, Description = request.Description,
-            Settings = request.Settings, Active = true,
-            CreatedAt = DateTimeOffset.UtcNow,
-        };
-        Rules[rule.Id!] = rule;
-        return CreatedAtAction(nameof(Get), new { dispatchId = rule.Id }, rule);
+        _logger.LogInformation(
+            "Creating dispatch rule '{Name}' with strategy {Strategy}",
+            request.Name, request.Settings.Strategy);
+
+        var result = await _dispatchService.CreateAsync(request, ct);
+        return CreatedAtAction(nameof(Get), new { id = result.Id }, result);
     }
 
+    /// <summary>
+    /// List all dispatch rules with pagination.
+    /// </summary>
     [HttpGet]
-    public IActionResult List() => Ok(new { data = Rules.Values.ToList() });
-
-    [HttpGet("{dispatchId}")]
-    public IActionResult Get(string dispatchId)
-        => Rules.TryGetValue(dispatchId, out var rule) ? Ok(rule) : NotFound();
-
-    [HttpPatch("{dispatchId}")]
-    public IActionResult Update(string dispatchId, [FromBody] UpdateDispatchRuleRequest request)
+    [ProducesResponseType(typeof(PaginatedResponse<DispatchRule>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> List(
+        [FromQuery] string? cursor,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
     {
-        if (!Rules.TryGetValue(dispatchId, out var existing)) return NotFound();
-        var updated = new DispatchRule
-        {
-            Id = existing.Id,
-            Name = request.Name ?? existing.Name,
-            Description = request.Description ?? existing.Description,
-            Settings = request.Settings ?? existing.Settings,
-            Active = request.Active ?? existing.Active,
-            CreatedAt = existing.CreatedAt,
-            UpdatedAt = DateTimeOffset.UtcNow,
-        };
-        Rules[dispatchId] = updated;
-        return Ok(updated);
+        var result = await _dispatchService.ListAsync(cursor, Math.Clamp(pageSize, 1, 100), ct);
+        return Ok(result);
     }
 
-    [HttpDelete("{dispatchId}")]
+    /// <summary>
+    /// Get a dispatch rule by its ID.
+    /// </summary>
+    [HttpGet("{id}")]
+    [ProducesResponseType(typeof(DispatchRule), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Get(string id, CancellationToken ct)
+    {
+        var result = await _dispatchService.GetAsync(id, ct);
+        if (result is null)
+        {
+            return NotFound(new ApiError
+            {
+                Code = "NOT_FOUND",
+                Message = $"Dispatch rule '{id}' not found."
+            });
+        }
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Update a dispatch rule. Only provided fields are modified.
+    /// </summary>
+    [HttpPatch("{id}")]
+    [ProducesResponseType(typeof(DispatchRule), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Update(string id, [FromBody] UpdateDispatchRuleRequest request, CancellationToken ct)
+    {
+        var result = await _dispatchService.UpdateAsync(id, request, ct);
+        if (result is null)
+        {
+            return NotFound(new ApiError
+            {
+                Code = "NOT_FOUND",
+                Message = $"Dispatch rule '{id}' not found."
+            });
+        }
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Delete a dispatch rule.
+    /// </summary>
+    [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public IActionResult Delete(string dispatchId)
-        => Rules.TryRemove(dispatchId, out _) ? NoContent() : NotFound();
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Delete(string id, CancellationToken ct)
+    {
+        var deleted = await _dispatchService.DeleteAsync(id, ct);
+        if (!deleted)
+        {
+            return NotFound(new ApiError
+            {
+                Code = "NOT_FOUND",
+                Message = $"Dispatch rule '{id}' not found."
+            });
+        }
+        return NoContent();
+    }
 }

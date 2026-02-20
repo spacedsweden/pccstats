@@ -272,7 +272,20 @@ public sealed class MessageService : IMessageService
         if (msg.Status != MessageStatus.Queued)
             return Task.FromResult(false);
 
-        var revoked = msg with { Status = MessageStatus.Revoked, UpdatedAt = DateTimeOffset.UtcNow };
+        var revoked = new MessageResponse
+        {
+            MessageId = msg.MessageId,
+            To = msg.To,
+            From = msg.From,
+            Channel = msg.Channel,
+            Status = MessageStatus.Revoked,
+            Content = msg.Content,
+            CreatedAt = msg.CreatedAt,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            ErrorMessage = msg.ErrorMessage,
+            Metadata = msg.Metadata,
+            CorrelationId = msg.CorrelationId
+        };
         _messages[messageId] = revoked;
 
         _logger.LogInformation("Message {MessageId} revoked", messageId);

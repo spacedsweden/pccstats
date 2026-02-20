@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using Sinch.MessageRouter.Gateway.Configuration;
 using Sinch.MessageRouter.Gateway.Middleware;
 using Sinch.MessageRouter.Gateway.Services;
 
@@ -21,7 +22,8 @@ builder.Services.AddControllers()
 
 // ─── YARP Reverse Proxy ──────────────────────────────────────────────
 builder.Services.AddReverseProxy()
-    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
+    .AddSinchTransforms();
 
 // ─── HTTP Clients ────────────────────────────────────────────────────
 builder.Services.AddHttpClient("SinchApi", client =>
@@ -34,17 +36,21 @@ builder.Services.AddHttpClient("SinchApi", client =>
 })
 .AddStandardResilienceHandler();
 
-builder.Services.AddHttpClient();
+builder.Services.AddHttpClient(); // Default client for webhook delivery
 
 // ─── Services ────────────────────────────────────────────────────────
 builder.Services.AddSingleton<IMessageService, MessageService>();
 builder.Services.AddSingleton<IWebhookService, WebhookService>();
+builder.Services.AddSingleton<IDispatchService, DispatchService>();
+builder.Services.AddSingleton<IContactService, ContactService>();
+builder.Services.AddSingleton<ITemplateService, TemplateService>();
 
 // ─── Rate Limiting ───────────────────────────────────────────────────
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+    // Per API key rate limit: 1000 requests per minute per key
     options.AddPolicy("PerApiKey", httpContext =>
     {
         var apiKey = httpContext.Request.Headers["X-API-Key"].FirstOrDefault()
@@ -53,13 +59,15 @@ builder.Services.AddRateLimiter(options =>
 
         return RateLimitPartition.GetFixedWindowLimiter(apiKey, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = builder.Configuration.GetValue("RateLimiting:PerKeyLimit", 1000),
-            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = builder.Configuration.GetValue("RateLimiting:FixedWindow:PermitLimit", 1000),
+            Window = TimeSpan.FromSeconds(
+                builder.Configuration.GetValue("RateLimiting:FixedWindow:WindowSeconds", 60)),
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            QueueLimit = 50
+            QueueLimit = builder.Configuration.GetValue("RateLimiting:FixedWindow:QueueLimit", 50)
         });
     });
 
+    // Global rate limit across all API keys
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         RateLimitPartition.GetFixedWindowLimiter("global", _ => new FixedWindowRateLimiterOptions
         {
@@ -85,8 +93,8 @@ builder.Services.AddOpenTelemetry()
     {
         m.AddAspNetCoreInstrumentation();
         m.AddHttpClientInstrumentation();
-        m.AddMeter("Sinch.MessageRouter");
-        m.AddMeter("Sinch.MessageRouter.Webhooks");
+        m.AddMeter("Sinch.MessageRouter");       // messages_sent_total, dispatch_attempts_total, channel_usage_total
+        m.AddMeter("Sinch.MessageRouter.Webhooks"); // webhook_deliveries_total
         m.AddPrometheusExporter();
         m.AddOtlpExporter();
     })
@@ -102,15 +110,30 @@ builder.Services.AddOpenTelemetry()
 builder.Services.AddHealthChecks();
 
 // ─── CORS ────────────────────────────────────────────────────────────
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+    {
+        if (corsOrigins is { Length: > 0 })
+        {
+            policy.WithOrigins(corsOrigins)
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        }
+        else
+        {
+            policy.AllowAnyOrigin()
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        }
+    });
 });
 
 var app = builder.Build();
 
 // ─── Middleware Pipeline ─────────────────────────────────────────────
+// Order: Error handling -> CORS -> Rate limiting -> Auth -> Controllers/YARP
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseCors();
 app.UseRateLimiter();
@@ -131,4 +154,5 @@ app.MapGet("/", () => Results.Ok(new
 
 app.Run();
 
+// Make Program accessible for integration tests
 public partial class Program { }
