@@ -1425,3 +1425,1096 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         "500":
           $ref: '#/components/responses/InternalServerError'
+components:
+  # ═══════════════════════════════════════════════
+  # Security Schemes
+  # ═══════════════════════════════════════════════
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OAuth 2.0 Bearer token. Obtain a token from the Sinch Dashboard or via
+        the OAuth token endpoint. Include it in the Authorization header:
+        `Authorization: Bearer <token>`
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key authentication. Pass your API key in the X-API-Key header.
+        Suitable for server-to-server integrations. Obtain keys from the
+        Sinch Dashboard.
+
+  # ═══════════════════════════════════════════════
+  # Parameters
+  # ═══════════════════════════════════════════════
+  parameters:
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      description: Unique message identifier.
+      schema:
+        type: string
+        example: "msg_01H9XKPB3GPT7C1QVR4CTWNX8M"
+
+    WebhookId:
+      name: webhookId
+      in: path
+      required: true
+      description: Unique webhook identifier.
+      schema:
+        type: string
+        example: "whk_01H9XKPB3GPT7C1QVR4CTWNX8M"
+
+    ContactId:
+      name: contactId
+      in: path
+      required: true
+      description: Unique contact identifier.
+      schema:
+        type: string
+        example: "con_01H9XKPB3GPT7C1QVR4CTWNX8M"
+
+    TemplateId:
+      name: templateId
+      in: path
+      required: true
+      description: Unique template identifier.
+      schema:
+        type: string
+        example: "tpl_01H9XKPB3GPT7C1QVR4CTWNX8M"
+
+    DispatchId:
+      name: dispatchId
+      in: path
+      required: true
+      description: Unique dispatch rule identifier.
+      schema:
+        type: string
+        example: "dsp_01H9XKPB3GPT7C1QVR4CTWNX8M"
+
+    Limit:
+      name: limit
+      in: query
+      description: |
+        Maximum number of items to return per page. Defaults to 20, maximum 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
+
+    Cursor:
+      name: cursor
+      in: query
+      description: |
+        Opaque cursor for pagination. Pass the nextCursor value from a previous
+        response to retrieve the next page.
+      schema:
+        type: string
+        example: "eyJpZCI6Im1zZ18wMUg5..."
+
+  # ═══════════════════════════════════════════════
+  # Headers
+  # ═══════════════════════════════════════════════
+  headers:
+    X-RateLimit-Limit:
+      description: The maximum number of requests allowed in the current time window.
+      schema:
+        type: integer
+        example: 1000
+
+    X-RateLimit-Remaining:
+      description: The number of requests remaining in the current time window.
+      schema:
+        type: integer
+        example: 997
+
+    X-RateLimit-Reset:
+      description: The Unix timestamp (seconds) at which the current rate-limit window resets.
+      schema:
+        type: integer
+        example: 1694778600
+
+  # ═══════════════════════════════════════════════
+  # Responses (shared error responses)
+  # ═══════════════════════════════════════════════
+  responses:
+    BadRequest:
+      description: The request body is malformed or contains invalid parameters.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "invalid_request"
+              message: "The 'to' field must be a valid E.164 phone number or contact ID."
+              status: 400
+              details:
+                - field: "to"
+                  issue: "Invalid phone number format. Expected E.164 (e.g., +15551234567)."
+
+    Unauthorized:
+      description: Authentication credentials are missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "unauthorized"
+              message: "Invalid or expired authentication token."
+              status: 401
+
+    Forbidden:
+      description: The authenticated user does not have permission to perform this action.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "forbidden"
+              message: "Your account does not have permission to send messages on the WhatsApp channel."
+              status: 403
+
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "not_found"
+              message: "The requested resource was not found."
+              status: 404
+
+    TooManyRequests:
+      description: Rate limit exceeded. Retry after the time indicated in the Retry-After header.
+      headers:
+        Retry-After:
+          description: Number of seconds to wait before retrying.
+          schema:
+            type: integer
+            example: 30
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/X-RateLimit-Limit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/X-RateLimit-Remaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/X-RateLimit-Reset'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "rate_limit_exceeded"
+              message: "You have exceeded the rate limit. Please retry after 30 seconds."
+              status: 429
+
+    InternalServerError:
+      description: An unexpected error occurred on the server.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "internal_error"
+              message: "An unexpected error occurred. Please try again later."
+              status: 500
+              requestId: "req_01H9XKPB3GPT7C1QVR4CTWNX8M"
+
+    ServiceUnavailable:
+      description: The service is temporarily unavailable. Retry with exponential backoff.
+      headers:
+        Retry-After:
+          description: Number of seconds to wait before retrying.
+          schema:
+            type: integer
+            example: 60
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "service_unavailable"
+              message: "The service is temporarily unavailable. Please try again later."
+              status: 503
+  # ═══════════════════════════════════════════════
+  # Schemas
+  # ═══════════════════════════════════════════════
+  schemas:
+    # ─────────────────────────────────────
+    # Enums
+    # ─────────────────────────────────────
+    Channel:
+      type: string
+      description: The messaging channel to use for delivery.
+      enum:
+        - sms
+        - rcs
+        - whatsapp
+        - messenger
+        - viber
+        - telegram
+        - mms
+        - line
+        - kakaotalk
+        - instagram
+      example: sms
+
+    MessageStatus:
+      type: string
+      description: |
+        The current delivery status of a message.
+        - **queued** -- Message accepted and waiting to be sent.
+        - **submitted** -- Message submitted to the channel provider.
+        - **delivered** -- Message confirmed delivered to the recipient's device.
+        - **read** -- Recipient has read the message (channels that support read receipts).
+        - **failed** -- Message delivery failed.
+        - **revoked** -- Message was cancelled before submission.
+        - **expired** -- Message TTL elapsed before delivery.
+      enum:
+        - queued
+        - submitted
+        - delivered
+        - read
+        - failed
+        - revoked
+        - expired
+      example: delivered
+
+    DispatchStrategy:
+      type: string
+      description: |
+        The routing strategy for multi-channel dispatch.
+        - **failover** -- Try channels in sequence; fall through on failure or timeout.
+        - **broadcast** -- Send on all channels simultaneously.
+        - **round-robin** -- Distribute messages across channels evenly over time.
+        - **cost-optimized** -- Automatically select the cheapest reachable channel.
+      enum:
+        - failover
+        - broadcast
+        - round-robin
+        - cost-optimized
+      example: failover
+
+    Priority:
+      type: string
+      description: Message delivery priority.
+      enum:
+        - high
+        - normal
+        - low
+      default: normal
+      example: normal
+
+    WebhookEventType:
+      type: string
+      description: The type of event delivered to a webhook.
+      enum:
+        - message.incoming
+        - message.delivered
+        - message.read
+        - message.failed
+        - message.submitted
+        - dispatch.completed
+        - dispatch.failed
+      example: message.delivered
+
+    # ─────────────────────────────────────
+    # Error
+    # ─────────────────────────────────────
+    Error:
+      type: object
+      description: Standard error response envelope.
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+            - status
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code.
+              example: "invalid_request"
+            message:
+              type: string
+              description: Human-readable error description.
+              example: "The 'to' field must be a valid E.164 phone number."
+            status:
+              type: integer
+              description: HTTP status code.
+              example: 400
+            requestId:
+              type: string
+              description: Unique request identifier for support inquiries.
+              example: "req_01H9XKPB3GPT7C1QVR4CTWNX8M"
+            details:
+              type: array
+              description: Detailed validation errors, if applicable.
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                    description: The field that caused the error.
+                  issue:
+                    type: string
+                    description: A description of what is wrong with the field.
+
+    # ─────────────────────────────────────
+    # Pagination
+    # ─────────────────────────────────────
+    PaginationMeta:
+      type: object
+      description: Cursor-based pagination metadata.
+      required:
+        - hasMore
+      properties:
+        hasMore:
+          type: boolean
+          description: Whether there are more results beyond this page.
+        nextCursor:
+          type: string
+          nullable: true
+          description: |
+            Opaque cursor to pass as the cursor query parameter to fetch the
+            next page. Null when there are no more results.
+          example: "eyJpZCI6Im1zZ18wMUg5..."
+        totalCount:
+          type: integer
+          description: |
+            Approximate total number of results matching the query. This value
+            is best-effort and may not be exact for very large result sets.
+          example: 1042
+
+    # ─────────────────────────────────────
+    # Content Types (discriminated union)
+    # ─────────────────────────────────────
+    MessageContent:
+      description: |
+        Polymorphic message content. The type field acts as a discriminator to
+        determine the shape of the content object.
+      discriminator:
+        propertyName: type
+        mapping:
+          text: '#/components/schemas/TextContent'
+          media: '#/components/schemas/MediaContent'
+          card: '#/components/schemas/CardContent'
+          carousel: '#/components/schemas/CarouselContent'
+          location: '#/components/schemas/LocationContent'
+          template: '#/components/schemas/TemplateContent'
+          list: '#/components/schemas/ListContent'
+          choices: '#/components/schemas/ChoicesContent'
+      oneOf:
+        - $ref: '#/components/schemas/TextContent'
+        - $ref: '#/components/schemas/MediaContent'
+        - $ref: '#/components/schemas/CardContent'
+        - $ref: '#/components/schemas/CarouselContent'
+        - $ref: '#/components/schemas/LocationContent'
+        - $ref: '#/components/schemas/TemplateContent'
+        - $ref: '#/components/schemas/ListContent'
+        - $ref: '#/components/schemas/ChoicesContent'
+
+    TextContent:
+      type: object
+      description: Plain text message content.
+      required:
+        - type
+        - text
+      properties:
+        type:
+          type: string
+          const: text
+        text:
+          type: string
+          description: The message text. Maximum length depends on the channel.
+          maxLength: 8000
+          example: "Hello from MessageRouter!"
+
+    MediaContent:
+      type: object
+      description: Media message (image, video, audio, or document).
+      required:
+        - type
+        - url
+        - mediaType
+      properties:
+        type:
+          type: string
+          const: media
+        url:
+          type: string
+          format: uri
+          description: Publicly accessible URL of the media file.
+          example: "https://example.com/image.jpg"
+        mediaType:
+          type: string
+          description: The type of media being sent.
+          enum:
+            - image
+            - video
+            - audio
+            - document
+          example: image
+        caption:
+          type: string
+          description: Optional caption displayed with the media.
+          maxLength: 1024
+          example: "Check out this photo!"
+        filename:
+          type: string
+          description: Suggested filename for document downloads.
+          example: "receipt.pdf"
+
+    CardContent:
+      type: object
+      description: |
+        A rich card with a title, description, optional media, and action buttons.
+        Supported on RCS, WhatsApp, Messenger, and other rich channels. On
+        channels that do not support cards the content is rendered as text with links.
+      required:
+        - type
+        - title
+      properties:
+        type:
+          type: string
+          const: card
+        title:
+          type: string
+          description: Card title.
+          maxLength: 200
+          example: "Summer Sale"
+        description:
+          type: string
+          description: Card description or body text.
+          maxLength: 2000
+          example: "50% off all items this weekend only."
+        media:
+          $ref: '#/components/schemas/CardMedia'
+        actions:
+          type: array
+          description: Action buttons displayed on the card.
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/Action'
+
+    CardMedia:
+      type: object
+      description: Media attachment for a card.
+      required:
+        - url
+        - type
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Publicly accessible URL of the media file.
+          example: "https://example.com/banner.jpg"
+        type:
+          type: string
+          enum:
+            - image
+            - video
+          description: Media type.
+          example: image
+        height:
+          type: string
+          enum:
+            - short
+            - medium
+            - tall
+          description: Suggested display height for the media.
+          default: medium
+
+    Action:
+      type: object
+      description: An interactive action button.
+      required:
+        - type
+        - title
+        - payload
+      properties:
+        type:
+          type: string
+          description: The action type.
+          enum:
+            - reply
+            - url
+            - call
+          example: url
+        title:
+          type: string
+          description: Button label displayed to the user.
+          maxLength: 25
+          example: "Shop Now"
+        payload:
+          type: string
+          description: |
+            Action payload. For reply actions this is a developer-defined string
+            returned in the webhook. For url actions this is the URL to open.
+            For call actions this is the phone number to dial.
+          example: "https://example.com/sale"
+
+    CarouselContent:
+      type: object
+      description: |
+        A horizontal scrollable carousel of cards. Each card can have its own
+        title, description, media, and actions. Requires at least 2 cards.
+      required:
+        - type
+        - cards
+      properties:
+        type:
+          type: string
+          const: carousel
+        cards:
+          type: array
+          description: The cards in the carousel.
+          minItems: 2
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/CarouselCard'
+
+    CarouselCard:
+      type: object
+      description: A single card within a carousel.
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          example: "Product A"
+        description:
+          type: string
+          maxLength: 2000
+        media:
+          $ref: '#/components/schemas/CardMedia'
+        actions:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/Action'
+
+    LocationContent:
+      type: object
+      description: A location pin with optional name and address.
+      required:
+        - type
+        - lat
+        - lng
+      properties:
+        type:
+          type: string
+          const: location
+        lat:
+          type: number
+          format: double
+          description: Latitude in decimal degrees.
+          minimum: -90
+          maximum: 90
+          example: 37.7749
+        lng:
+          type: number
+          format: double
+          description: Longitude in decimal degrees.
+          minimum: -180
+          maximum: 180
+          example: -122.4194
+        name:
+          type: string
+          description: Name of the location.
+          example: "Sinch HQ"
+        address:
+          type: string
+          description: Street address of the location.
+          example: "123 Market St, San Francisco, CA 94105"
+
+    TemplateContent:
+      type: object
+      description: |
+        A pre-approved message template. Required for WhatsApp Business API
+        initiated (outbound) conversations. Reference a template by its ID
+        and supply parameter values.
+      required:
+        - type
+        - id
+        - parameters
+      properties:
+        type:
+          type: string
+          const: template
+        id:
+          type: string
+          description: Template identifier (name or ID).
+          example: "order_confirmation_v2"
+        parameters:
+          type: object
+          description: Key-value map of template parameter names to their values.
+          additionalProperties:
+            type: string
+          example:
+            customer_name: "Jane"
+            order_id: "ORD-98765"
+
+    ListContent:
+      type: object
+      description: |
+        An interactive list message with sections. The user taps a button to
+        expand the list and can select an item. Supported on WhatsApp.
+      required:
+        - type
+        - title
+        - sections
+      properties:
+        type:
+          type: string
+          const: list
+        title:
+          type: string
+          description: Header text displayed above the list.
+          maxLength: 60
+          example: "Select a product"
+        buttonText:
+          type: string
+          description: Text on the button that opens the list.
+          maxLength: 20
+          default: "View options"
+        sections:
+          type: array
+          description: Grouped sections of list items.
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/ListSection'
+
+    ListSection:
+      type: object
+      description: A section within a list message.
+      required:
+        - title
+        - items
+      properties:
+        title:
+          type: string
+          description: Section heading.
+          maxLength: 24
+          example: "Popular Items"
+        items:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/ListItem'
+
+    ListItem:
+      type: object
+      description: An individual selectable item in a list section.
+      required:
+        - id
+        - title
+      properties:
+        id:
+          type: string
+          description: Unique identifier for this item, returned in the webhook when selected.
+          example: "item_001"
+        title:
+          type: string
+          description: Item title.
+          maxLength: 24
+          example: "Margherita Pizza"
+        description:
+          type: string
+          description: Optional item description.
+          maxLength: 72
+          example: "Classic tomato, mozzarella, and basil."
+
+    ChoicesContent:
+      type: object
+      description: |
+        A text message with quick-reply buttons or suggested actions. On channels
+        that do not support interactive buttons, the choices are appended as
+        numbered options in the text.
+      required:
+        - type
+        - text
+        - choices
+      properties:
+        type:
+          type: string
+          const: choices
+        text:
+          type: string
+          description: The message text displayed above the choices.
+          maxLength: 4096
+          example: "How would you like to proceed?"
+        choices:
+          type: array
+          description: Interactive choice buttons.
+          minItems: 1
+          maxItems: 13
+          items:
+            $ref: '#/components/schemas/Action'
+    # ─────────────────────────────────────
+    # Message Schemas
+    # ─────────────────────────────────────
+    MessageRequest:
+      type: object
+      description: |
+        Request body for sending a message. At minimum, provide a recipient (to)
+        and either a body (shorthand for plain text) or a content object.
+
+        The API defaults to the SMS channel when channel is omitted, making the
+        simplest possible request just: `{ "to": "+15551234567", "body": "Hello" }`.
+      required:
+        - to
+      properties:
+        to:
+          type: string
+          description: |
+            Recipient identifier. An E.164 phone number (e.g., +15551234567) or
+            a contact ID (e.g., con_01H9...).
+          example: "+15551234567"
+        from:
+          type: string
+          description: |
+            Sender identifier. If omitted, the default sender for the selected
+            channel is used.
+          example: "+15559876543"
+        channel:
+          $ref: '#/components/schemas/Channel'
+          default: sms
+        body:
+          type: string
+          description: |
+            Plain text message body. This is a convenience shorthand -- when
+            provided, the API wraps it in a TextContent object automatically.
+            Mutually preferred over content; if both are provided, content takes
+            precedence.
+          maxLength: 8000
+          example: "Hello from MessageRouter!"
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        dispatch:
+          $ref: '#/components/schemas/InlineDispatch'
+        callbackUrl:
+          type: string
+          format: uri
+          description: |
+            Per-message callback URL. If provided, delivery status events for this
+            message are sent to this URL instead of (or in addition to) registered
+            webhooks.
+          example: "https://example.com/callbacks/msg123"
+        metadata:
+          type: object
+          description: |
+            Arbitrary key-value pairs attached to the message. Returned in webhooks
+            and API responses. Maximum 10 keys, 256 characters per key, 1024
+            characters per value.
+          additionalProperties:
+            type: string
+          example:
+            orderId: "ORD-98765"
+            campaign: "summer_sale"
+        ttl:
+          type: integer
+          description: |
+            Time-to-live in seconds. If the message cannot be delivered within
+            this window it expires and a message.failed event is emitted.
+          minimum: 1
+          maximum: 604800
+          example: 3600
+        priority:
+          $ref: '#/components/schemas/Priority'
+
+    InlineDispatch:
+      type: object
+      description: |
+        Inline dispatch configuration for a single message. Overrides any
+        default dispatch rule. Define a strategy and a list of channel routes.
+      required:
+        - strategy
+        - routes
+      properties:
+        strategy:
+          $ref: '#/components/schemas/DispatchStrategy'
+        routes:
+          type: array
+          description: Ordered list of channel routes.
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/DispatchRoute'
+
+    DispatchRoute:
+      type: object
+      description: A single route in a dispatch configuration.
+      required:
+        - channel
+      properties:
+        channel:
+          $ref: '#/components/schemas/Channel'
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        ttl:
+          type: integer
+          description: |
+            Time-to-live in seconds for this route. In a failover strategy, if
+            delivery is not confirmed within this window the next route is tried.
+          minimum: 1
+          maximum: 604800
+          example: 30
+        from:
+          type: string
+          description: Override sender for this route.
+
+    MessageResponse:
+      type: object
+      description: Full message details as returned by the API.
+      required:
+        - id
+        - to
+        - channel
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+          description: Unique message identifier.
+          example: "msg_01H9XKPB3GPT7C1QVR4CTWNX8M"
+        to:
+          type: string
+          description: Recipient identifier.
+          example: "+15551234567"
+        from:
+          type: string
+          description: Sender identifier.
+          example: "+15559876543"
+        channel:
+          $ref: '#/components/schemas/Channel'
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        direction:
+          type: string
+          enum:
+            - outbound
+            - inbound
+          description: Whether the message was sent or received.
+          example: outbound
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when the message was accepted by the API.
+          example: "2025-09-15T10:30:00.000Z"
+        submittedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the message was submitted to the channel provider.
+          example: "2025-09-15T10:30:01.000Z"
+        deliveredAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when delivery was confirmed.
+          example: "2025-09-15T10:30:03.000Z"
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the recipient read the message (if supported).
+        failedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the message failed.
+        statusHistory:
+          type: array
+          description: Ordered list of status transitions with timestamps.
+          items:
+            type: object
+            properties:
+              status:
+                $ref: '#/components/schemas/MessageStatus'
+              timestamp:
+                type: string
+                format: date-time
+              detail:
+                type: string
+                description: Optional detail about this status transition.
+        cost:
+          type: object
+          nullable: true
+          description: Estimated or actual cost of the message.
+          properties:
+            amount:
+              type: string
+              description: Cost amount as a decimal string.
+              example: "0.0075"
+            currency:
+              type: string
+              description: ISO 4217 currency code.
+              example: "USD"
+        segments:
+          type: integer
+          nullable: true
+          description: Number of SMS segments (only applicable to SMS/MMS).
+          example: 1
+        error:
+          type: object
+          nullable: true
+          description: Error details if the message failed.
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code.
+              example: "undeliverable"
+            message:
+              type: string
+              description: Human-readable error description.
+              example: "The recipient's device is unreachable."
+            channel:
+              $ref: '#/components/schemas/Channel'
+
+    MessageList:
+      type: object
+      description: Paginated list of messages.
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    # ─────────────────────────────────────
+    # Batch Message Schemas
+    # ─────────────────────────────────────
+    BatchMessageRequest:
+      type: object
+      description: |
+        Send the same message to multiple recipients. Each recipient may
+        optionally override the channel. Maximum 1000 recipients per batch.
+      required:
+        - recipients
+      properties:
+        recipients:
+          type: array
+          description: List of recipients.
+          minItems: 1
+          maxItems: 1000
+          items:
+            type: object
+            required:
+              - to
+            properties:
+              to:
+                type: string
+                description: Recipient identifier (E.164 phone number or contact ID).
+                example: "+15551234567"
+              channel:
+                $ref: '#/components/schemas/Channel'
+              metadata:
+                type: object
+                additionalProperties:
+                  type: string
+                description: Per-recipient metadata overrides.
+        body:
+          type: string
+          description: Text body shared across all recipients.
+          example: "Flash sale starts now!"
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        channel:
+          $ref: '#/components/schemas/Channel'
+          default: sms
+        from:
+          type: string
+          description: Sender identifier.
+        callbackUrl:
+          type: string
+          format: uri
+          description: Callback URL for batch-level delivery events.
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        priority:
+          $ref: '#/components/schemas/Priority'
+
+    BatchMessageResponse:
+      type: object
+      description: Response for a batch send operation.
+      required:
+        - batchId
+        - totalRecipients
+        - status
+        - createdAt
+      properties:
+        batchId:
+          type: string
+          description: Unique batch identifier for tracking.
+          example: "bat_01H9XKPB3GPT7C1QVR4CTWNX8M"
+        totalRecipients:
+          type: integer
+          description: Number of recipients in the batch.
+          example: 3
+        accepted:
+          type: integer
+          description: Number of messages accepted for delivery.
+          example: 3
+        rejected:
+          type: integer
+          description: Number of messages rejected due to validation errors.
+          example: 0
+        status:
+          type: string
+          enum:
+            - processing
+            - completed
+            - partial_failure
+          description: Overall batch status.
+          example: processing
+        messages:
+          type: array
+          description: Per-recipient message details (included when batch is small).
+          items:
+            type: object
+            properties:
+              messageId:
+                type: string
+              to:
+                type: string
+              status:
+                $ref: '#/components/schemas/MessageStatus'
+              error:
+                type: string
+                nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-09-15T10:30:00.000Z"
