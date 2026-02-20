@@ -24,7 +24,12 @@ info:
 
     Send your first message in one call:
 
-
+    ```bash
+    curl -X POST https://api.messagerouter.sinch.com/v1/messages \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{ "to": "+15551234567", "body": "Hello from MessageRouter!" }'
+    ```
 
     ## Authentication
 
@@ -40,6 +45,17 @@ info:
 
     List endpoints use cursor-based pagination. Pass the cursor value from the
     response's nextCursor field as the cursor query parameter to fetch the next page.
+
+    ## Resource IDs
+
+    All resource identifiers use a typed prefix for easy identification:
+    `msg_` (messages), `whk_` (webhooks).
+
+    ## Idempotency
+
+    All POST endpoints accept an `Idempotency-Key` header. If you retry a request
+    with the same key within 24 hours, the API returns the original response without
+    creating a duplicate resource. Keys are scoped to your account.
   contact:
     name: Sinch Developer Support
     url: https://developers.sinch.com
@@ -66,37 +82,24 @@ security:
 tags:
   - name: Messages
     description: |
-      Send, retrieve, and manage messages across all supported channels.
+      Send and retrieve messages across all supported channels.
       The simplest call requires only a recipient and a body -- the API defaults
       to SMS. For rich content, set the content object with a type discriminator.
-  - name: Batch
-    description: Send messages to multiple recipients in a single request.
+      For multi-channel dispatch, add an inline dispatch object.
   - name: Channels
     description: |
       Inspect and configure the messaging channels available on your account.
       Each channel exposes its capabilities (rich cards, read receipts, typing
-      indicators, etc.) so you can build adaptive UIs.
+      indicators, etc.) so you can build adaptive UIs. Channel onboarding is
+      done through the Sinch Dashboard; the API is for reading status and
+      updating configuration.
   - name: Webhooks
     description: |
       Register HTTP endpoints to receive real-time event notifications for
-      incoming messages, delivery receipts, read receipts, failures, and
-      dispatch outcomes.
-  - name: Contacts
-    description: |
-      Manage contacts and their channel identities. A contact can have
-      identities on multiple channels (phone number for SMS, WhatsApp ID, etc.).
-  - name: Templates
-    description: |
-      Create and manage reusable message templates. Templates support
-      parameterized placeholders and are required for WhatsApp Business
-      initiated conversations.
-  - name: Dispatch
-    description: |
-      Configure multi-channel dispatch rules with intelligent routing strategies.
-      Dispatch rules define how messages are routed across channels using
-      strategies like failover, broadcast, round-robin, or cost-optimized selection.
+      incoming messages, delivery receipts, read receipts, and failures.
   - name: Health
-    description: Service health and status endpoints.
+    description: Service health, status, and per-channel diagnostics.
+
 paths:
   # ─────────────────────────────────────────────
   # Messages
@@ -146,8 +149,13 @@ paths:
           }
         }
         ```
+
+        You must provide either `body` or `content`, but not both. Providing
+        both returns a 400 validation error.
       tags:
         - Messages
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -220,6 +228,8 @@ paths:
         "201":
           description: Message accepted for delivery.
           headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
             X-RateLimit-Limit:
               $ref: '#/components/headers/X-RateLimit-Limit'
             X-RateLimit-Remaining:
@@ -241,6 +251,9 @@ paths:
                   text: "Hello from MessageRouter!"
                 metadata: {}
                 createdAt: "2025-09-15T10:30:00.000Z"
+                statusHistory:
+                  - status: queued
+                    timestamp: "2025-09-15T10:30:00.000Z"
                 cost:
                   amount: "0.0075"
                   currency: "USD"
@@ -280,7 +293,7 @@ paths:
             $ref: '#/components/schemas/Channel'
         - name: to
           in: query
-          description: Filter by recipient identifier (phone number or contact ID).
+          description: Filter by recipient identifier (E.164 phone number).
           schema:
             type: string
             example: "+15551234567"
@@ -289,6 +302,14 @@ paths:
           description: Filter by sender identifier.
           schema:
             type: string
+        - name: direction
+          in: query
+          description: Filter by message direction.
+          schema:
+            type: string
+            enum:
+              - inbound
+              - outbound
         - name: startDate
           in: query
           description: Return messages created on or after this ISO 8601 timestamp.
@@ -309,6 +330,8 @@ paths:
         "200":
           description: A paginated list of messages.
           headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
             X-RateLimit-Limit:
               $ref: '#/components/headers/X-RateLimit-Limit'
             X-RateLimit-Remaining:
@@ -343,6 +366,8 @@ paths:
         "200":
           description: Message details.
           headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
             X-RateLimit-Limit:
               $ref: '#/components/headers/X-RateLimit-Limit'
             X-RateLimit-Remaining:
@@ -357,96 +382,11 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         "404":
           $ref: '#/components/responses/NotFound'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    delete:
-      operationId: revokeMessage
-      summary: Revoke or cancel a pending message
-      description: |
-        Attempt to revoke a message that has not yet been submitted to the carrier.
-        Messages in the queued state can be revoked; messages already submitted
-        or delivered cannot be recalled.
-      tags:
-        - Messages
-      responses:
-        "200":
-          description: Message revoked successfully.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageResponse'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "409":
-          description: Message cannot be revoked because it has already been submitted or delivered.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error:
-                  code: "message_already_submitted"
-                  message: "Cannot revoke a message that has already been submitted to the carrier."
-                  status: 409
         "429":
           $ref: '#/components/responses/TooManyRequests'
         "500":
           $ref: '#/components/responses/InternalServerError'
 
-  # ─────────────────────────────────────────────
-  # Batch Messages
-  # ─────────────────────────────────────────────
-  /v1/messages/batch:
-    post:
-      operationId: sendBatchMessages
-      summary: Send a batch of messages
-      description: |
-        Send the same message to multiple recipients in a single request. Each
-        recipient may optionally override the channel or content. The API returns
-        a batch ID and per-recipient status.
-      tags:
-        - Batch
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BatchMessageRequest'
-            example:
-              recipients:
-                - to: "+15551234567"
-                - to: "+15559876543"
-                - to: "+15550001111"
-                  channel: whatsapp
-              body: "Flash sale starts now! Reply STOP to opt out."
-              channel: sms
-              from: "+18005550100"
-      responses:
-        "201":
-          description: Batch accepted for delivery.
-          headers:
-            X-RateLimit-Limit:
-              $ref: '#/components/headers/X-RateLimit-Limit'
-            X-RateLimit-Remaining:
-              $ref: '#/components/headers/X-RateLimit-Remaining'
-            X-RateLimit-Reset:
-              $ref: '#/components/headers/X-RateLimit-Reset'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BatchMessageResponse'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
   # ─────────────────────────────────────────────
   # Channels
   # ─────────────────────────────────────────────
@@ -465,6 +405,8 @@ paths:
         "200":
           description: A list of channels.
           headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
             X-RateLimit-Limit:
               $ref: '#/components/headers/X-RateLimit-Limit'
             X-RateLimit-Remaining:
@@ -533,6 +475,9 @@ paths:
       responses:
         "200":
           description: Channel details.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
@@ -571,8 +516,10 @@ paths:
       operationId: updateChannel
       summary: Update channel configuration
       description: |
-        Update the configuration for a specific channel. Only the fields provided
-        in the request body are updated; all other settings remain unchanged.
+        Replace the mutable configuration for a specific channel. Send the
+        complete set of mutable fields — omitted fields are reset to defaults.
+        Channel provisioning and onboarding is done through the Sinch Dashboard;
+        this endpoint is for automation of configuration changes.
       tags:
         - Channels
       requestBody:
@@ -588,6 +535,9 @@ paths:
       responses:
         "200":
           description: Channel configuration updated.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
@@ -614,6 +564,8 @@ paths:
         must be HTTPS and respond to a validation request with a 200 status.
       tags:
         - Webhooks
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -632,6 +584,9 @@ paths:
       responses:
         "201":
           description: Webhook registered successfully.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
@@ -668,6 +623,9 @@ paths:
       responses:
         "200":
           description: A paginated list of webhooks.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
@@ -689,6 +647,9 @@ paths:
       responses:
         "200":
           description: Webhook details.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
@@ -699,12 +660,12 @@ paths:
           $ref: '#/components/responses/NotFound'
         "500":
           $ref: '#/components/responses/InternalServerError'
-    patch:
+    put:
       operationId: updateWebhook
       summary: Update a webhook
       description: |
-        Update a webhook endpoint. Only the fields provided in the request body
-        are modified. To pause a webhook, set its status to inactive.
+        Replace a webhook endpoint's configuration. Send the complete set of
+        mutable fields. To pause a webhook, set its status to inactive.
       tags:
         - Webhooks
       requestBody:
@@ -714,16 +675,19 @@ paths:
             schema:
               $ref: '#/components/schemas/WebhookUpdateRequest'
             example:
+              url: "https://example.com/webhooks/messagerouter"
               events:
                 - message.incoming
                 - message.delivered
                 - message.read
                 - message.failed
-                - dispatch.completed
               status: active
       responses:
         "200":
           description: Webhook updated.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
@@ -747,6 +711,9 @@ paths:
       responses:
         "204":
           description: Webhook deleted successfully.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
         "401":
           $ref: '#/components/responses/Unauthorized'
         "404":
@@ -780,6 +747,9 @@ paths:
       responses:
         "200":
           description: Test event sent. Returns the delivery result.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/X-Request-Id'
           content:
             application/json:
               schema:
@@ -807,568 +777,60 @@ paths:
           $ref: '#/components/responses/NotFound'
         "500":
           $ref: '#/components/responses/InternalServerError'
-  # ─────────────────────────────────────────────
-  # Contacts
-  # ─────────────────────────────────────────────
-  /v1/contacts:
-    post:
-      operationId: createContact
-      summary: Create a contact
-      description: |
-        Create a new contact with one or more channel identities. A channel
-        identity maps a contact to a specific identifier on a channel (e.g.,
-        a phone number for SMS, a WhatsApp ID, etc.).
-      tags:
-        - Contacts
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ContactCreateRequest'
-            example:
-              displayName: "Jane Doe"
-              email: "jane.doe@example.com"
-              channelIdentities:
-                - channel: sms
-                  identity: "+15551234567"
-                - channel: whatsapp
-                  identity: "+15551234567"
-                - channel: messenger
-                  identity: "10155364675"
-              metadata:
-                customerId: "cust_abc123"
-                tier: "premium"
-      responses:
-        "201":
-          description: Contact created successfully.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ContactResponse'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "409":
-          description: A contact with the same channel identity already exists.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    get:
-      operationId: listContacts
-      summary: List contacts
-      description: Retrieve a paginated list of contacts with optional search.
-      tags:
-        - Contacts
-      parameters:
-        - name: search
-          in: query
-          description: Search contacts by name, email, or channel identity.
-          schema:
-            type: string
-        - name: channel
-          in: query
-          description: Filter contacts that have an identity on this channel.
-          schema:
-            $ref: '#/components/schemas/Channel'
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Cursor'
-      responses:
-        "200":
-          description: A paginated list of contacts.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ContactList'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-
-  /v1/contacts/{contactId}:
-    parameters:
-      - $ref: '#/components/parameters/ContactId'
-    get:
-      operationId: getContact
-      summary: Get a contact
-      description: Retrieve full details for a single contact.
-      tags:
-        - Contacts
-      responses:
-        "200":
-          description: Contact details.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ContactResponse'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    patch:
-      operationId: updateContact
-      summary: Update a contact
-      description: |
-        Partially update a contact. Only the fields provided in the request
-        body are modified. To add or remove channel identities, include the
-        full channelIdentities array.
-      tags:
-        - Contacts
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ContactUpdateRequest'
-            example:
-              displayName: "Jane M. Doe"
-              metadata:
-                customerId: "cust_abc123"
-                tier: "enterprise"
-      responses:
-        "200":
-          description: Contact updated.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ContactResponse'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    delete:
-      operationId: deleteContact
-      summary: Delete a contact
-      description: Permanently delete a contact and all associated channel identities.
-      tags:
-        - Contacts
-      responses:
-        "204":
-          description: Contact deleted successfully.
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-
-  /v1/contacts/{contactId}/messages:
-    parameters:
-      - $ref: '#/components/parameters/ContactId'
-    get:
-      operationId: getContactMessages
-      summary: Get a contact's message history
-      description: |
-        Retrieve the message history for a specific contact across all channels.
-        Results are returned in reverse chronological order.
-      tags:
-        - Contacts
-      parameters:
-        - name: channel
-          in: query
-          description: Filter by channel.
-          schema:
-            $ref: '#/components/schemas/Channel'
-        - name: direction
-          in: query
-          description: Filter by message direction.
-          schema:
-            type: string
-            enum:
-              - inbound
-              - outbound
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Cursor'
-      responses:
-        "200":
-          description: A paginated list of messages for this contact.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageList'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
 
   # ─────────────────────────────────────────────
-  # Templates
-  # ─────────────────────────────────────────────
-  /v1/templates:
-    post:
-      operationId: createTemplate
-      summary: Create a message template
-      description: |
-        Create a reusable message template with parameterized placeholders.
-        Templates are required for WhatsApp Business API initiated conversations
-        and can be used on any channel to standardize message content.
-
-        Parameters are referenced in the template body using double curly braces:
-        `{{parameter_name}}`.
-      tags:
-        - Templates
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TemplateCreateRequest'
-            example:
-              name: "order_shipped"
-              description: "Notify customer that their order has shipped"
-              channel: whatsapp
-              language: "en"
-              content:
-                type: text
-                text: "Hi {{customer_name}}, your order {{order_id}} has been shipped! Track it here: {{tracking_url}}"
-              parameters:
-                - name: customer_name
-                  description: "Customer's first name"
-                  example: "Jane"
-                - name: order_id
-                  description: "Order identifier"
-                  example: "ORD-98765"
-                - name: tracking_url
-                  description: "Package tracking URL"
-                  example: "https://example.com/track/1234"
-      responses:
-        "201":
-          description: Template created successfully.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TemplateResponse'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "409":
-          description: A template with this name already exists.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    get:
-      operationId: listTemplates
-      summary: List templates
-      description: Retrieve a paginated list of message templates.
-      tags:
-        - Templates
-      parameters:
-        - name: channel
-          in: query
-          description: Filter templates by channel.
-          schema:
-            $ref: '#/components/schemas/Channel'
-        - name: status
-          in: query
-          description: Filter templates by approval status.
-          schema:
-            type: string
-            enum:
-              - pending
-              - approved
-              - rejected
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Cursor'
-      responses:
-        "200":
-          description: A paginated list of templates.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TemplateList'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-
-  /v1/templates/{templateId}:
-    parameters:
-      - $ref: '#/components/parameters/TemplateId'
-    get:
-      operationId: getTemplate
-      summary: Get a template
-      description: Retrieve full details for a single message template.
-      tags:
-        - Templates
-      responses:
-        "200":
-          description: Template details.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TemplateResponse'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    patch:
-      operationId: updateTemplate
-      summary: Update a template
-      description: |
-        Partially update a message template. Updating the content of an approved
-        WhatsApp template will require re-approval.
-      tags:
-        - Templates
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TemplateUpdateRequest'
-      responses:
-        "200":
-          description: Template updated.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TemplateResponse'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    delete:
-      operationId: deleteTemplate
-      summary: Delete a template
-      description: Permanently delete a message template.
-      tags:
-        - Templates
-      responses:
-        "204":
-          description: Template deleted successfully.
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-  # ─────────────────────────────────────────────
-  # Dispatch Rules
-  # ─────────────────────────────────────────────
-  /v1/dispatch:
-    post:
-      operationId: createDispatchRule
-      summary: Create a dispatch rule
-      description: |
-        Create a reusable multi-channel dispatch rule. Dispatch rules define how
-        messages are routed across channels using a chosen strategy.
-
-        **Strategies:**
-        - **failover** -- Try channels in order. If delivery on the first channel
-          fails or times out, fall through to the next.
-        - **broadcast** -- Send the message on all specified channels simultaneously.
-        - **round-robin** -- Distribute messages evenly across channels over time.
-        - **cost-optimized** -- Automatically select the cheapest available channel
-          that can reach the recipient.
-      tags:
-        - Dispatch
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DispatchRuleCreateRequest'
-            example:
-              name: "OTP Delivery"
-              description: "Deliver one-time passwords with RCS-first failover"
-              strategy: failover
-              routes:
-                - channel: rcs
-                  ttl: 30
-                  content:
-                    type: text
-                    text: "Your code is {{otp}}. Do not share it."
-                - channel: whatsapp
-                  ttl: 60
-                  content:
-                    type: template
-                    id: "otp_template"
-                    parameters:
-                      code: "{{otp}}"
-                - channel: sms
-                  content:
-                    type: text
-                    text: "Your code is {{otp}}"
-      responses:
-        "201":
-          description: Dispatch rule created.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DispatchRuleResponse'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    get:
-      operationId: listDispatchRules
-      summary: List dispatch rules
-      description: Retrieve a paginated list of dispatch rules.
-      tags:
-        - Dispatch
-      parameters:
-        - name: strategy
-          in: query
-          description: Filter by dispatch strategy.
-          schema:
-            $ref: '#/components/schemas/DispatchStrategy'
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Cursor'
-      responses:
-        "200":
-          description: A paginated list of dispatch rules.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DispatchRuleList'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "429":
-          $ref: '#/components/responses/TooManyRequests'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-
-  /v1/dispatch/{dispatchId}:
-    parameters:
-      - $ref: '#/components/parameters/DispatchId'
-    get:
-      operationId: getDispatchRule
-      summary: Get a dispatch rule
-      description: Retrieve full details for a single dispatch rule.
-      tags:
-        - Dispatch
-      responses:
-        "200":
-          description: Dispatch rule details.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DispatchRuleResponse'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    patch:
-      operationId: updateDispatchRule
-      summary: Update a dispatch rule
-      description: Partially update a dispatch rule. Only the fields provided are modified.
-      tags:
-        - Dispatch
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DispatchRuleUpdateRequest'
-      responses:
-        "200":
-          description: Dispatch rule updated.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DispatchRuleResponse'
-        "400":
-          $ref: '#/components/responses/BadRequest'
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-    delete:
-      operationId: deleteDispatchRule
-      summary: Delete a dispatch rule
-      description: Permanently delete a dispatch rule. In-flight messages using this rule will complete normally.
-      tags:
-        - Dispatch
-      responses:
-        "204":
-          description: Dispatch rule deleted successfully.
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "404":
-          $ref: '#/components/responses/NotFound'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
-
-  # ─────────────────────────────────────────────
-  # Health & Status
+  # Health
   # ─────────────────────────────────────────────
   /health:
     get:
       operationId: healthCheck
       summary: Health check
       description: |
-        Returns the health status of the API. This endpoint does not require
-        authentication and is intended for load balancers and monitoring systems.
+        Returns the health status of the API and per-channel diagnostics.
+        Without authentication, returns only the top-level status for use by
+        load balancers. With authentication, includes per-channel health,
+        latency metrics, and any ongoing incidents.
       tags:
         - Health
-      security: []
+      security:
+        - {}
+        - BearerAuth: []
+        - ApiKeyAuth: []
       responses:
         "200":
           description: Service is healthy.
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - status
-                  - timestamp
-                properties:
-                  status:
-                    type: string
-                    enum:
-                      - healthy
-                      - degraded
-                    description: Overall service health.
-                  timestamp:
-                    type: string
-                    format: date-time
-                    description: Current server time.
-                  version:
-                    type: string
-                    description: API version string.
-              example:
-                status: healthy
-                timestamp: "2025-09-15T10:30:00.000Z"
-                version: "1.0.0"
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                unauthenticated:
+                  summary: Basic health (no auth)
+                  value:
+                    status: healthy
+                    timestamp: "2025-09-15T10:30:00.000Z"
+                    version: "1.0.0"
+                authenticated:
+                  summary: Full health with channel diagnostics (authenticated)
+                  value:
+                    status: healthy
+                    timestamp: "2025-09-15T10:30:00.000Z"
+                    version: "1.0.0"
+                    channels:
+                      - id: sms
+                        status: operational
+                        latencyMs: 45
+                        successRate: 0.998
+                      - id: whatsapp
+                        status: operational
+                        latencyMs: 120
+                        successRate: 0.995
+                      - id: rcs
+                        status: degraded
+                        latencyMs: 890
+                        successRate: 0.92
+                        incident: "Elevated latency on RCS gateway. Investigating."
+                    incidents: []
         "503":
           description: Service is unhealthy.
           content:
@@ -1386,45 +848,6 @@ paths:
                   details:
                     type: string
 
-  /v1/status:
-    get:
-      operationId: getStatus
-      summary: API status and channel health
-      description: |
-        Returns detailed status information for the API and each configured
-        channel, including latency metrics and any ongoing incidents.
-      tags:
-        - Health
-      responses:
-        "200":
-          description: Detailed API and channel status.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StatusResponse'
-              example:
-                status: operational
-                timestamp: "2025-09-15T10:30:00.000Z"
-                version: "1.0.0"
-                channels:
-                  - id: sms
-                    status: operational
-                    latencyMs: 45
-                    successRate: 0.998
-                  - id: whatsapp
-                    status: operational
-                    latencyMs: 120
-                    successRate: 0.995
-                  - id: rcs
-                    status: degraded
-                    latencyMs: 890
-                    successRate: 0.92
-                    incident: "Elevated latency on RCS gateway. Investigating."
-                incidents: []
-        "401":
-          $ref: '#/components/responses/Unauthorized'
-        "500":
-          $ref: '#/components/responses/InternalServerError'
 components:
   # ═══════════════════════════════════════════════
   # Security Schemes
@@ -1469,32 +892,17 @@ components:
         type: string
         example: "whk_01H9XKPB3GPT7C1QVR4CTWNX8M"
 
-    ContactId:
-      name: contactId
-      in: path
-      required: true
-      description: Unique contact identifier.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Unique key for idempotent requests. If you retry a request with the same
+        key within 24 hours, the API returns the original response without
+        creating a duplicate resource.
       schema:
         type: string
-        example: "con_01H9XKPB3GPT7C1QVR4CTWNX8M"
-
-    TemplateId:
-      name: templateId
-      in: path
-      required: true
-      description: Unique template identifier.
-      schema:
-        type: string
-        example: "tpl_01H9XKPB3GPT7C1QVR4CTWNX8M"
-
-    DispatchId:
-      name: dispatchId
-      in: path
-      required: true
-      description: Unique dispatch rule identifier.
-      schema:
-        type: string
-        example: "dsp_01H9XKPB3GPT7C1QVR4CTWNX8M"
+        example: "idk_a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     Limit:
       name: limit
@@ -1522,6 +930,14 @@ components:
   # Headers
   # ═══════════════════════════════════════════════
   headers:
+    X-Request-Id:
+      description: |
+        Unique identifier for this request. Include this value in support
+        tickets for faster debugging.
+      schema:
+        type: string
+        example: "req_01H9XKPB3GPT7C1QVR4CTWNX8M"
+
     X-RateLimit-Limit:
       description: The maximum number of requests allowed in the current time window.
       schema:
@@ -1546,58 +962,69 @@ components:
   responses:
     BadRequest:
       description: The request body is malformed or contains invalid parameters.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error:
-              code: "invalid_request"
-              message: "The 'to' field must be a valid E.164 phone number or contact ID."
-              status: 400
-              details:
-                - field: "to"
-                  issue: "Invalid phone number format. Expected E.164 (e.g., +15551234567)."
+            code: "invalid_request"
+            message: "The 'to' field must be a valid E.164 phone number."
+            status: 400
+            requestId: "req_01H9XKPB3GPT7C1QVR4CTWNX8M"
+            details:
+              - field: "to"
+                issue: "Invalid phone number format. Expected E.164 (e.g., +15551234567)."
 
     Unauthorized:
       description: Authentication credentials are missing or invalid.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error:
-              code: "unauthorized"
-              message: "Invalid or expired authentication token."
-              status: 401
+            code: "unauthorized"
+            message: "Invalid or expired authentication token."
+            status: 401
 
     Forbidden:
       description: The authenticated user does not have permission to perform this action.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error:
-              code: "forbidden"
-              message: "Your account does not have permission to send messages on the WhatsApp channel."
-              status: 403
+            code: "forbidden"
+            message: "Your account does not have permission to send messages on the WhatsApp channel."
+            status: 403
 
     NotFound:
       description: The requested resource was not found.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error:
-              code: "not_found"
-              message: "The requested resource was not found."
-              status: 404
+            code: "not_found"
+            message: "The requested resource was not found."
+            status: 404
 
     TooManyRequests:
       description: Rate limit exceeded. Retry after the time indicated in the Retry-After header.
       headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
         Retry-After:
           description: Number of seconds to wait before retrying.
           schema:
@@ -1614,27 +1041,30 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error:
-              code: "rate_limit_exceeded"
-              message: "You have exceeded the rate limit. Please retry after 30 seconds."
-              status: 429
+            code: "rate_limit_exceeded"
+            message: "You have exceeded the rate limit. Please retry after 30 seconds."
+            status: 429
 
     InternalServerError:
       description: An unexpected error occurred on the server.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error:
-              code: "internal_error"
-              message: "An unexpected error occurred. Please try again later."
-              status: 500
-              requestId: "req_01H9XKPB3GPT7C1QVR4CTWNX8M"
+            code: "internal_error"
+            message: "An unexpected error occurred. Please try again later."
+            status: 500
+            requestId: "req_01H9XKPB3GPT7C1QVR4CTWNX8M"
 
     ServiceUnavailable:
       description: The service is temporarily unavailable. Retry with exponential backoff.
       headers:
+        X-Request-Id:
+          $ref: '#/components/headers/X-Request-Id'
         Retry-After:
           description: Number of seconds to wait before retrying.
           schema:
@@ -1645,10 +1075,10 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
           example:
-            error:
-              code: "service_unavailable"
-              message: "The service is temporarily unavailable. Please try again later."
-              status: 503
+            code: "service_unavailable"
+            message: "The service is temporarily unavailable. Please try again later."
+            status: 503
+
   # ═══════════════════════════════════════════════
   # Schemas
   # ═══════════════════════════════════════════════
@@ -1681,7 +1111,6 @@ components:
         - **delivered** -- Message confirmed delivered to the recipient's device.
         - **read** -- Recipient has read the message (channels that support read receipts).
         - **failed** -- Message delivery failed.
-        - **revoked** -- Message was cancelled before submission.
         - **expired** -- Message TTL elapsed before delivery.
       enum:
         - queued
@@ -1689,7 +1118,6 @@ components:
         - delivered
         - read
         - failed
-        - revoked
         - expired
       example: delivered
 
@@ -1708,16 +1136,6 @@ components:
         - cost-optimized
       example: failover
 
-    Priority:
-      type: string
-      description: Message delivery priority.
-      enum:
-        - high
-        - normal
-        - low
-      default: normal
-      example: normal
-
     WebhookEventType:
       type: string
       description: The type of event delivered to a webhook.
@@ -1727,54 +1145,50 @@ components:
         - message.read
         - message.failed
         - message.submitted
-        - dispatch.completed
-        - dispatch.failed
       example: message.delivered
 
     # ─────────────────────────────────────
-    # Error
+    # Error (flat -- no wrapper object)
     # ─────────────────────────────────────
     Error:
       type: object
-      description: Standard error response envelope.
+      description: |
+        Standard error response. Fields are top-level -- no wrapper object.
+        Every error includes a machine-readable code, a human-readable message,
+        and the HTTP status. The requestId matches the X-Request-Id header.
       required:
-        - error
+        - code
+        - message
+        - status
       properties:
-        error:
-          type: object
-          required:
-            - code
-            - message
-            - status
-          properties:
-            code:
-              type: string
-              description: Machine-readable error code.
-              example: "invalid_request"
-            message:
-              type: string
-              description: Human-readable error description.
-              example: "The 'to' field must be a valid E.164 phone number."
-            status:
-              type: integer
-              description: HTTP status code.
-              example: 400
-            requestId:
-              type: string
-              description: Unique request identifier for support inquiries.
-              example: "req_01H9XKPB3GPT7C1QVR4CTWNX8M"
-            details:
-              type: array
-              description: Detailed validation errors, if applicable.
-              items:
-                type: object
-                properties:
-                  field:
-                    type: string
-                    description: The field that caused the error.
-                  issue:
-                    type: string
-                    description: A description of what is wrong with the field.
+        code:
+          type: string
+          description: Machine-readable error code.
+          example: "invalid_request"
+        message:
+          type: string
+          description: Human-readable error description.
+          example: "The 'to' field must be a valid E.164 phone number."
+        status:
+          type: integer
+          description: HTTP status code.
+          example: 400
+        requestId:
+          type: string
+          description: Unique request identifier for support inquiries. Matches the X-Request-Id header.
+          example: "req_01H9XKPB3GPT7C1QVR4CTWNX8M"
+        details:
+          type: array
+          description: Detailed validation errors, if applicable.
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: The field that caused the error.
+              issue:
+                type: string
+                description: A description of what is wrong with the field.
 
     # ─────────────────────────────────────
     # Pagination
@@ -1795,12 +1209,6 @@ components:
             Opaque cursor to pass as the cursor query parameter to fetch the
             next page. Null when there are no more results.
           example: "eyJpZCI6Im1zZ18wMUg5..."
-        totalCount:
-          type: integer
-          description: |
-            Approximate total number of results matching the query. This value
-            is best-effort and may not be exact for very large result sets.
-          example: 1042
 
     # ─────────────────────────────────────
     # Content Types (discriminated union)
@@ -1932,14 +1340,6 @@ components:
             - video
           description: Media type.
           example: image
-        height:
-          type: string
-          enum:
-            - short
-            - medium
-            - tall
-          description: Suggested display height for the media.
-          default: medium
 
     Action:
       type: object
@@ -2049,8 +1449,9 @@ components:
       type: object
       description: |
         A pre-approved message template. Required for WhatsApp Business API
-        initiated (outbound) conversations. Reference a template by its ID
-        and supply parameter values.
+        initiated (outbound) conversations. Create and manage templates in
+        the Sinch Dashboard or via the Sinch Conversation API. Reference
+        them here by name or ID and supply parameter values.
       required:
         - type
         - id
@@ -2167,9 +1568,10 @@ components:
           type: array
           description: Interactive choice buttons.
           minItems: 1
-          maxItems: 13
+          maxItems: 10
           items:
             $ref: '#/components/schemas/Action'
+
     # ─────────────────────────────────────
     # Message Schemas
     # ─────────────────────────────────────
@@ -2179,22 +1581,25 @@ components:
         Request body for sending a message. At minimum, provide a recipient (to)
         and either a body (shorthand for plain text) or a content object.
 
-        The API defaults to the SMS channel when channel is omitted, making the
-        simplest possible request just: `{ "to": "+15551234567", "body": "Hello" }`.
+        **Defaults to SMS** when channel is omitted, making the simplest possible
+        request just: `{ "to": "+15551234567", "body": "Hello" }`.
+
+        You must provide either `body` or `content`, but not both. Sending both
+        returns a 400 validation error.
       required:
         - to
       properties:
         to:
           type: string
           description: |
-            Recipient identifier. An E.164 phone number (e.g., +15551234567) or
-            a contact ID (e.g., con_01H9...).
+            Recipient identifier. An E.164 phone number (e.g., +15551234567).
           example: "+15551234567"
         from:
           type: string
           description: |
             Sender identifier. If omitted, the default sender for the selected
-            channel is used.
+            channel is used. Configure default senders per channel in the
+            Sinch Dashboard or via PUT /v1/channels/{channelId}.
           example: "+15559876543"
         channel:
           $ref: '#/components/schemas/Channel'
@@ -2204,8 +1609,7 @@ components:
           description: |
             Plain text message body. This is a convenience shorthand -- when
             provided, the API wraps it in a TextContent object automatically.
-            Mutually preferred over content; if both are provided, content takes
-            precedence.
+            Mutually exclusive with content.
           maxLength: 8000
           example: "Hello from MessageRouter!"
         content:
@@ -2239,14 +1643,12 @@ components:
           minimum: 1
           maximum: 604800
           example: 3600
-        priority:
-          $ref: '#/components/schemas/Priority'
 
     InlineDispatch:
       type: object
       description: |
-        Inline dispatch configuration for a single message. Overrides any
-        default dispatch rule. Define a strategy and a list of channel routes.
+        Inline dispatch configuration for a single message. Define a strategy
+        and a list of channel routes to control multi-channel delivery.
       required:
         - strategy
         - routes
@@ -2327,33 +1729,16 @@ components:
           format: date-time
           description: Timestamp when the message was accepted by the API.
           example: "2025-09-15T10:30:00.000Z"
-        submittedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Timestamp when the message was submitted to the channel provider.
-          example: "2025-09-15T10:30:01.000Z"
-        deliveredAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Timestamp when delivery was confirmed.
-          example: "2025-09-15T10:30:03.000Z"
-        readAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Timestamp when the recipient read the message (if supported).
-        failedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Timestamp when the message failed.
         statusHistory:
           type: array
-          description: Ordered list of status transitions with timestamps.
+          description: |
+            Ordered list of status transitions with timestamps. This is the
+            single source of truth for when each status change occurred.
           items:
             type: object
+            required:
+              - status
+              - timestamp
             properties:
               status:
                 $ref: '#/components/schemas/MessageStatus'
@@ -2379,7 +1764,7 @@ components:
         segments:
           type: integer
           nullable: true
-          description: Number of SMS segments (only applicable to SMS/MMS).
+          description: Number of SMS segments. Only present for SMS/MMS channels.
           example: 1
         error:
           type: object
@@ -2412,109 +1797,306 @@ components:
           $ref: '#/components/schemas/PaginationMeta'
 
     # ─────────────────────────────────────
-    # Batch Message Schemas
+    # Channel Schemas
     # ─────────────────────────────────────
-    BatchMessageRequest:
+    ChannelInfo:
       type: object
-      description: |
-        Send the same message to multiple recipients. Each recipient may
-        optionally override the channel. Maximum 1000 recipients per batch.
+      description: Summary of a messaging channel.
       required:
-        - recipients
-      properties:
-        recipients:
-          type: array
-          description: List of recipients.
-          minItems: 1
-          maxItems: 1000
-          items:
-            type: object
-            required:
-              - to
-            properties:
-              to:
-                type: string
-                description: Recipient identifier (E.164 phone number or contact ID).
-                example: "+15551234567"
-              channel:
-                $ref: '#/components/schemas/Channel'
-              metadata:
-                type: object
-                additionalProperties:
-                  type: string
-                description: Per-recipient metadata overrides.
-        body:
-          type: string
-          description: Text body shared across all recipients.
-          example: "Flash sale starts now!"
-        content:
-          $ref: '#/components/schemas/MessageContent'
-        channel:
-          $ref: '#/components/schemas/Channel'
-          default: sms
-        from:
-          type: string
-          description: Sender identifier.
-        callbackUrl:
-          type: string
-          format: uri
-          description: Callback URL for batch-level delivery events.
-        metadata:
-          type: object
-          additionalProperties:
-            type: string
-        priority:
-          $ref: '#/components/schemas/Priority'
-
-    BatchMessageResponse:
-      type: object
-      description: Response for a batch send operation.
-      required:
-        - batchId
-        - totalRecipients
+        - id
+        - name
         - status
-        - createdAt
       properties:
-        batchId:
+        id:
+          $ref: '#/components/schemas/Channel'
+        name:
           type: string
-          description: Unique batch identifier for tracking.
-          example: "bat_01H9XKPB3GPT7C1QVR4CTWNX8M"
-        totalRecipients:
-          type: integer
-          description: Number of recipients in the batch.
-          example: 3
-        accepted:
-          type: integer
-          description: Number of messages accepted for delivery.
-          example: 3
-        rejected:
-          type: integer
-          description: Number of messages rejected due to validation errors.
-          example: 0
+          description: Human-readable channel name.
+          example: "WhatsApp"
         status:
           type: string
           enum:
-            - processing
-            - completed
-            - partial_failure
-          description: Overall batch status.
-          example: processing
-        messages:
+            - active
+            - inactive
+            - pending
+          description: Channel provisioning status.
+          example: active
+        capabilities:
+          $ref: '#/components/schemas/ChannelCapabilities'
+
+    ChannelDetail:
+      type: object
+      description: Full channel details including configuration and health.
+      required:
+        - id
+        - name
+        - status
+      properties:
+        id:
+          $ref: '#/components/schemas/Channel'
+        name:
+          type: string
+          example: "WhatsApp"
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - pending
+          example: active
+        capabilities:
+          $ref: '#/components/schemas/ChannelCapabilities'
+        configuration:
+          type: object
+          description: Channel-specific configuration. Shape varies by channel.
+          additionalProperties: true
+        health:
+          type: object
+          description: Current health metrics for this channel.
+          properties:
+            status:
+              type: string
+              enum:
+                - healthy
+                - degraded
+                - down
+            latencyMs:
+              type: integer
+              description: Average delivery latency in milliseconds.
+            lastCheckedAt:
+              type: string
+              format: date-time
+
+    ChannelCapabilities:
+      type: object
+      description: What this channel supports.
+      properties:
+        richCards:
+          type: boolean
+          example: true
+        readReceipts:
+          type: boolean
+          example: true
+        typingIndicators:
+          type: boolean
+          example: true
+        media:
+          type: boolean
+          example: true
+        maxMessageLength:
+          type: integer
+          example: 4096
+        supportedMediaTypes:
           type: array
-          description: Per-recipient message details (included when batch is small).
           items:
-            type: object
-            properties:
-              messageId:
-                type: string
-              to:
-                type: string
-              status:
-                $ref: '#/components/schemas/MessageStatus'
-              error:
-                type: string
-                nullable: true
+            type: string
+          example:
+            - image/jpeg
+            - image/png
+            - video/mp4
+
+    ChannelConfigUpdate:
+      type: object
+      description: |
+        Replacement configuration for a channel. Send the complete set of
+        mutable configuration fields. Shape varies by channel.
+      required:
+        - configuration
+      properties:
+        configuration:
+          type: object
+          description: Channel-specific configuration. Shape varies by channel.
+          additionalProperties: true
+
+    # ─────────────────────────────────────
+    # Webhook Schemas
+    # ─────────────────────────────────────
+    WebhookCreateRequest:
+      type: object
+      description: Register a new webhook endpoint.
+      required:
+        - url
+        - events
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The HTTPS URL to receive event notifications.
+          example: "https://example.com/webhooks/messagerouter"
+        events:
+          type: array
+          description: Event types to subscribe to.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/WebhookEventType'
+        secret:
+          type: string
+          writeOnly: true
+          description: |
+            Shared secret used to sign webhook payloads. Include this to verify
+            that incoming webhooks are from MessageRouter. The secret is write-only
+            and never returned in API responses.
+          example: "whsec_a1b2c3d4e5f6"
+        description:
+          type: string
+          description: Human-readable description for this webhook.
+          maxLength: 256
+          example: "Production webhook for order notifications"
+
+    WebhookUpdateRequest:
+      type: object
+      description: |
+        Full replacement of a webhook's mutable fields. Send all fields
+        you want to keep — omitted mutable fields are reset to defaults.
+      required:
+        - url
+        - events
+      properties:
+        url:
+          type: string
+          format: uri
+          description: The HTTPS URL to receive event notifications.
+        events:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/WebhookEventType'
+        secret:
+          type: string
+          writeOnly: true
+          description: New shared secret. Write-only.
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+          description: Set to inactive to pause delivery without deleting.
+          default: active
+        description:
+          type: string
+          maxLength: 256
+
+    WebhookResponse:
+      type: object
+      description: Webhook endpoint details.
+      required:
+        - id
+        - url
+        - events
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: Unique webhook identifier.
+          example: "whk_01H9XKPB3GPT7C1QVR4CTWNX8M"
+        url:
+          type: string
+          format: uri
+          example: "https://example.com/webhooks/messagerouter"
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEventType'
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+          example: active
+        description:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
           example: "2025-09-15T10:30:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-09-15T10:30:00.000Z"
+
+    WebhookList:
+      type: object
+      description: Paginated list of webhooks.
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+    # ─────────────────────────────────────
+    # Health Schema
+    # ─────────────────────────────────────
+    HealthResponse:
+      type: object
+      description: |
+        API health status. Without authentication only top-level status is
+        returned. With authentication, per-channel diagnostics are included.
+      required:
+        - status
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum:
+            - healthy
+            - degraded
+          description: Overall service health.
+        timestamp:
+          type: string
+          format: date-time
+          description: Current server time.
+        version:
+          type: string
+          description: API version string.
+        channels:
+          type: array
+          description: Per-channel health diagnostics. Only included for authenticated requests.
+          items:
+            type: object
+            properties:
+              id:
+                $ref: '#/components/schemas/Channel'
+              status:
+                type: string
+                enum:
+                  - operational
+                  - degraded
+                  - down
+              latencyMs:
+                type: integer
+                description: Average delivery latency in milliseconds.
+              successRate:
+                type: number
+                format: double
+                description: Delivery success rate (0.0 to 1.0) over the last hour.
+              incident:
+                type: string
+                nullable: true
+                description: Description of any ongoing incident affecting this channel.
+        incidents:
+          type: array
+          description: Active platform-wide incidents. Only included for authenticated requests.
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              title:
+                type: string
+              status:
+                type: string
+                enum:
+                  - investigating
+                  - identified
+                  - monitoring
+                  - resolved
+              createdAt:
+                type: string
+                format: date-time
