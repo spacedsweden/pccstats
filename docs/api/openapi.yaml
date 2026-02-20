@@ -86,6 +86,14 @@ tags:
       The simplest call requires only a recipient and a body -- the API defaults
       to SMS. For rich content, set the content object with a type discriminator.
       For multi-channel dispatch, add an inline dispatch object.
+
+      **WhatsApp template auto-matching:** When sending on WhatsApp, the
+      platform automatically matches your content to an approved message
+      template when one is required for business-initiated conversations.
+      You don't need to manage template IDs -- just send your content and
+      the channel adapter handles template selection. For advanced cases
+      requiring explicit template control, use `content.type: channel_native`
+      (available in v1.1).
   - name: Channels
     description: |
       Inspect and configure the messaging channels available on your account.
@@ -135,6 +143,11 @@ paths:
         }
         ```
 
+        **Messenger (platform-scoped addressing):**
+        ```json
+        { "to": "messenger:1234567890123456", "channel": "messenger", "body": "Hello on Messenger!" }
+        ```
+
         **Dispatch with failover:**
         ```json
         {
@@ -149,6 +162,10 @@ paths:
           }
         }
         ```
+
+        The `to` field accepts E.164 phone numbers (starting with `+`) or
+        channel-scoped identifiers (`channel:id`) for platforms like Messenger
+        and Instagram. See the `to` field documentation for details.
 
         You must provide either `body` or `content`, but not both. Providing
         both returns a 400 validation error.
@@ -200,6 +217,18 @@ paths:
                     url: "https://example.com/receipt.pdf"
                     mediaType: document
                     caption: "Your receipt is attached."
+              messengerMessage:
+                summary: Messenger (platform-scoped ID)
+                value:
+                  to: "messenger:1234567890123456"
+                  channel: messenger
+                  body: "Your table for 2 is confirmed for 7pm tonight."
+              instagramMessage:
+                summary: Instagram (platform-scoped ID)
+                value:
+                  to: "instagram:5678901234567890"
+                  channel: instagram
+                  body: "Thanks for your order! We'll ship it tomorrow."
               dispatchFailover:
                 summary: Failover dispatch
                 value:
@@ -1206,6 +1235,17 @@ components:
       description: |
         Polymorphic message content. The type field acts as a discriminator to
         determine the shape of the content object.
+
+        For most use cases, the channel-agnostic content types (text, media,
+        card, carousel, location, list, choices) are sufficient. When sending
+        on WhatsApp, the platform automatically matches your content to an
+        approved template if one is required for business-initiated
+        conversations.
+
+        For channel-specific features that cannot be expressed through the
+        standard content types (e.g., complex WhatsApp templates with media
+        headers and multiple buttons), use `channel_native` (v1.1) to pass
+        channel-specific payloads in an explicitly namespaced object.
       discriminator:
         propertyName: type
         mapping:
@@ -1216,6 +1256,7 @@ components:
           location: '#/components/schemas/LocationContent'
           list: '#/components/schemas/ListContent'
           choices: '#/components/schemas/ChoicesContent'
+          channel_native: '#/components/schemas/ChannelNativeContent'
       oneOf:
         - $ref: '#/components/schemas/TextContent'
         - $ref: '#/components/schemas/MediaContent'
@@ -1224,6 +1265,7 @@ components:
         - $ref: '#/components/schemas/LocationContent'
         - $ref: '#/components/schemas/ListContent'
         - $ref: '#/components/schemas/ChoicesContent'
+        - $ref: '#/components/schemas/ChannelNativeContent'
 
     TextContent:
       type: object
@@ -1531,6 +1573,71 @@ components:
           items:
             $ref: '#/components/schemas/Action'
 
+    ChannelNativeContent:
+      type: object
+      description: |
+        Channel-specific content that cannot be expressed through the standard
+        content types. Use this as an escape hatch when you need direct access
+        to channel-specific features (e.g., complex WhatsApp templates with
+        media headers and custom button layouts).
+
+        The payload is namespaced by channel to make the channel dependency
+        explicit. You must also set the `channel` field on the message to
+        match.
+
+        **v1.1** -- This content type ships in v1.1. In v1 GA, the WhatsApp
+        channel adapter automatically matches standard content types to
+        approved templates. Use `channel_native` only when auto-matching
+        is insufficient.
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          const: channel_native
+        whatsapp:
+          type: object
+          description: WhatsApp-specific payload.
+          properties:
+            template:
+              type: object
+              description: A pre-approved WhatsApp message template.
+              required:
+                - id
+              properties:
+                id:
+                  type: string
+                  description: Template name or ID as registered with Meta.
+                  example: "order_confirmation_v2"
+                language:
+                  type: string
+                  description: Template language code (BCP 47).
+                  example: "en"
+                  default: "en"
+                parameters:
+                  type: object
+                  description: Key-value map of template parameter placeholders to values.
+                  additionalProperties:
+                    type: string
+                  example:
+                    customer_name: "Jane"
+                    order_id: "ORD-98765"
+          example:
+            template:
+              id: "order_confirmation_v2"
+              language: "en"
+              parameters:
+                customer_name: "Jane"
+                order_id: "ORD-98765"
+        kakaotalk:
+          type: object
+          description: KakaoTalk-specific payload. Reserved for future use.
+          additionalProperties: true
+        line:
+          type: object
+          description: LINE-specific payload. Reserved for future use.
+          additionalProperties: true
+
     # ─────────────────────────────────────
     # Message Schemas
     # ─────────────────────────────────────
@@ -1551,8 +1658,25 @@ components:
         to:
           type: string
           description: |
-            Recipient identifier. An E.164 phone number (e.g., +15551234567).
-          example: "+15551234567"
+            Recipient identifier. For phone-based channels (SMS, RCS, WhatsApp,
+            Viber, Telegram, MMS) use an E.164 phone number (e.g., +15551234567).
+            For platform-addressed channels, use a prefixed identifier:
+            `messenger:<PSID>`, `instagram:<IGSID>`, `line:<USER_ID>`,
+            `kakaotalk:<USER_ID>`.
+
+            The format is auto-detected: strings starting with `+` are treated
+            as E.164 phone numbers; strings containing `:` are treated as
+            channel-scoped identifiers.
+          examples:
+            phone:
+              value: "+15551234567"
+              summary: E.164 phone number (SMS, WhatsApp, RCS, etc.)
+            messenger:
+              value: "messenger:1234567890123456"
+              summary: Messenger Page-Scoped ID
+            instagram:
+              value: "instagram:5678901234567890"
+              summary: Instagram-Scoped ID
         from:
           type: string
           description: |

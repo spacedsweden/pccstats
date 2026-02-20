@@ -2,7 +2,7 @@
 
 **Status:** Proposed
 **Date:** 2026-02-20
-**Deciders:** API design team
+**Deciders:** API design council + Verification team (Wei)
 
 ## Context
 
@@ -10,16 +10,21 @@ WhatsApp supports authentication message templates — pre-approved OTP
 delivery formats with one-tap autofill on supported devices. Today,
 developers who want to send verification codes via WhatsApp must use the
 Sinch Conversation API directly with a pre-approved authentication
-template, bypassing our API entirely.
+template.
 
-Meanwhile, our Verification API already handles SMS and voice OTP delivery
-with built-in rate limiting, fraud detection, code generation, and
-verification logic.
+Analysis of Conversation API usage shows that ~60% of WhatsApp template
+messages are authentication/OTP flows. These customers are using a generic
+messaging API for a specialized verification product, without the
+protections that a purpose-built verification system provides.
+
+Meanwhile, the Sinch Verification API already handles SMS and voice OTP
+delivery with built-in rate limiting, fraud detection, code generation,
+expiry management, and code verification.
 
 ## Decision
 
 **Add `whatsapp` as a channel option in the Verification API** rather than
-exposing WhatsApp authentication templates in the messaging API.
+supporting WhatsApp authentication templates in the MessageRouter API.
 
 ## Rationale
 
@@ -28,13 +33,16 @@ exposing WhatsApp authentication templates in the messaging API.
 Sending an OTP involves more than delivering a string:
 
 - Code generation and storage
-- Expiry management
-- Rate limiting per recipient
+- Expiry management (codes should expire; messages don't)
+- Rate limiting per recipient (prevent brute-force)
 - Fraud scoring (SIM swap detection, velocity checks)
 - Code verification endpoint
+- Compliance logging
 
-All of this already exists in the Verification API for SMS and voice.
-WhatsApp is just another delivery rail for the same product.
+All of this exists in the Verification API for SMS and voice. WhatsApp is
+another delivery rail for the same product. Rebuilding these protections
+in the messaging API would duplicate effort and likely miss edge cases
+that the Verification team has already handled.
 
 ### 2. Template management is handled once, not per-request
 
@@ -43,11 +51,15 @@ Verification API can manage a single approved authentication template per
 account/locale and use it automatically. Developers never need to think
 about template IDs — they just say "verify this number via WhatsApp."
 
-### 3. Natural failover
+This is fundamentally different from the messaging API where developers
+might need explicit template control for diverse use cases (shipping,
+marketing, support).
+
+### 3. Natural fallback cascade
 
 The Verification API already supports channel fallback (try voice if SMS
-fails). Adding WhatsApp gives developers a `whatsapp → sms → voice`
-cascade with no additional API complexity:
+fails). Adding WhatsApp enables a `whatsapp → sms → voice` cascade with
+no additional complexity:
 
 ```json
 POST /v1/verifications
@@ -58,11 +70,25 @@ POST /v1/verifications
 }
 ```
 
-### 4. Keeps the messaging API clean
+This is cleaner than building verification-aware dispatch logic into the
+messaging API.
 
-Per ADR-001, we don't want channel-specific template concepts in the
-messaging API. Routing WhatsApp OTP through the Verification API avoids
-this entirely.
+### 4. Keeps the messaging API focused
+
+Per ADR-001, the MessageRouter API is a channel-agnostic message delivery
+API. Verification is a product concern with its own lifecycle, security
+requirements, and compliance obligations. Routing ~60% of current template
+traffic to the Verification API removes the primary driver for template
+support in the messaging API.
+
+### 5. The messaging API should not be a catch-all
+
+During the design review, multiple features were proposed for the messaging
+API that are actually separate products: batch notifications, marketing
+campaigns, OTP delivery, analytics. Each of these has specialized
+requirements that a generic "send message" endpoint cannot adequately
+serve. Verification is the clearest example — it needs fraud detection
+and rate limiting that would be inappropriate to enforce on all messages.
 
 ## Consequences
 
@@ -70,4 +96,6 @@ this entirely.
 - A pre-approved WhatsApp authentication template must be configured per
   account (via Dashboard) before WhatsApp verification works.
 - Developers get WhatsApp OTP delivery without learning template concepts.
-- The messaging API remains template-free.
+- The MessageRouter API stays template-free for OTP use cases.
+- ~60% of current Conversation API template traffic has a migration path
+  to a purpose-built product with proper security controls.
