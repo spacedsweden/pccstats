@@ -12,8 +12,8 @@ namespace Sinch.MessageRouter.Core.Messages;
 /// Level 3 - Rich content:
 ///   POST /v1/messages { "to": "+1234567890", "channel": "rcs", "content": { "type": "card", ... } }
 ///
-/// Level 4 - Dispatch/fallback:
-///   POST /v1/messages { "to": "+1234567890", "dispatch": [{ "channel": "rcs", ... }, { "channel": "sms", ... }] }
+/// Level 4 - Multi-channel routing:
+///   POST /v1/messages { "to": "+1234567890", "routes": [{ "channel": "rcs", ... }, { "channel": "sms", ... }] }
 /// </summary>
 public sealed class SendMessageRequest
 {
@@ -37,10 +37,20 @@ public sealed class SendMessageRequest
     public MessageContent? Content { get; init; }
 
     /// <summary>
-    /// Dispatch chain for multi-channel fallback/broadcast.
-    /// When set, Channel and Body/Content are ignored; each step defines its own.
+    /// Multi-channel routing with fallback. Each route specifies a channel to try.
+    /// Routes are attempted in order (failover) — if the first channel fails,
+    /// the next one is tried automatically.
+    /// When set, Channel and Body/Content are ignored; each route defines its own.
+    /// Mutually exclusive with RoutingRule.
     /// </summary>
-    public IReadOnlyList<DispatchStep>? Dispatch { get; init; }
+    public IReadOnlyList<MessageRoute>? Routes { get; init; }
+
+    /// <summary>
+    /// Reference a saved routing rule by ID instead of inlining routes.
+    /// The rule's strategy and routes will be applied to this message.
+    /// Mutually exclusive with Routes.
+    /// </summary>
+    public string? RoutingRule { get; init; }
 
     /// <summary>Callback URL for delivery status updates on this message.</summary>
     public string? CallbackUrl { get; init; }
@@ -65,11 +75,13 @@ public sealed class SendMessageRequest
 }
 
 /// <summary>
-/// A step in a dispatch chain for multi-channel fallback.
+/// A channel route in a multi-channel message.
+/// Routes are tried in order — if the message fails on the first channel,
+/// the next route is attempted automatically.
 /// </summary>
-public sealed class DispatchStep
+public sealed class MessageRoute
 {
-    /// <summary>Channel for this step.</summary>
+    /// <summary>Channel for this route.</summary>
     public required MessageChannel Channel { get; init; }
 
     /// <summary>Override text body for this channel.</summary>
@@ -81,6 +93,6 @@ public sealed class DispatchStep
     /// <summary>Override sender for this channel.</summary>
     public string? From { get; init; }
 
-    /// <summary>Timeout in seconds before falling back to next step.</summary>
+    /// <summary>Timeout in seconds before falling back to the next route.</summary>
     public int? TimeoutSeconds { get; init; }
 }

@@ -39,10 +39,10 @@ builder.Services.AddHttpClient("SinchApi", client =>
 builder.Services.AddHttpClient(); // Default client for webhook delivery
 
 // ─── Services ────────────────────────────────────────────────────────
+// Register dispatch first since MessageService depends on it for routing rule resolution
+builder.Services.AddSingleton<IDispatchService, DispatchService>();
 builder.Services.AddSingleton<IMessageService, MessageService>();
 builder.Services.AddSingleton<IWebhookService, WebhookService>();
-builder.Services.AddSingleton<IDispatchService, DispatchService>();
-builder.Services.AddSingleton<IContactService, ContactService>();
 builder.Services.AddSingleton<ITemplateService, TemplateService>();
 
 // ─── Rate Limiting ───────────────────────────────────────────────────

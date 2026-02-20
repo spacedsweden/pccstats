@@ -6,33 +6,34 @@ using Sinch.MessageRouter.Gateway.Services;
 namespace Sinch.MessageRouter.Gateway.Controllers;
 
 /// <summary>
-/// Manages dispatch rules for multi-channel message routing.
-/// Dispatch rules define strategies (failover, broadcast, round-robin, cost-optimized)
-/// that can be referenced when sending messages.
+/// Manages saved routing rules for multi-channel message delivery.
+/// Routing rules define strategies (failover, broadcast, round-robin, cost-optimized)
+/// that can be referenced by ID when sending messages via the "routingRule" field.
 /// </summary>
 [ApiController]
-[Route("v1/dispatch")]
-public class DispatchController : ControllerBase
+[Route("v1/routing-rules")]
+public class RoutingRulesController : ControllerBase
 {
     private readonly IDispatchService _dispatchService;
-    private readonly ILogger<DispatchController> _logger;
+    private readonly ILogger<RoutingRulesController> _logger;
 
-    public DispatchController(IDispatchService dispatchService, ILogger<DispatchController> logger)
+    public RoutingRulesController(IDispatchService dispatchService, ILogger<RoutingRulesController> logger)
     {
         _dispatchService = dispatchService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Create a new dispatch rule with a routing strategy and channel routes.
+    /// Create a reusable routing rule with a strategy and channel routes.
+    /// Reference it by ID in the "routingRule" field when sending messages.
     /// </summary>
     [HttpPost]
-    [ProducesResponseType(typeof(DispatchRule), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(RoutingRule), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Create([FromBody] CreateDispatchRuleRequest request, CancellationToken ct)
+    public async Task<IActionResult> Create([FromBody] CreateRoutingRuleRequest request, CancellationToken ct)
     {
         _logger.LogInformation(
-            "Creating dispatch rule '{Name}' with strategy {Strategy}",
+            "Creating routing rule '{Name}' with strategy {Strategy}",
             request.Name, request.Settings.Strategy);
 
         var result = await _dispatchService.CreateAsync(request, ct);
@@ -40,10 +41,10 @@ public class DispatchController : ControllerBase
     }
 
     /// <summary>
-    /// List all dispatch rules with pagination.
+    /// List all routing rules with pagination.
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(PaginatedResponse<DispatchRule>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PaginatedResponse<RoutingRule>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List(
         [FromQuery] string? cursor,
         [FromQuery] int pageSize = 20,
@@ -54,10 +55,10 @@ public class DispatchController : ControllerBase
     }
 
     /// <summary>
-    /// Get a dispatch rule by its ID.
+    /// Get a routing rule by its ID.
     /// </summary>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(DispatchRule), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(RoutingRule), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Get(string id, CancellationToken ct)
     {
@@ -67,19 +68,19 @@ public class DispatchController : ControllerBase
             return NotFound(new ApiError
             {
                 Code = "NOT_FOUND",
-                Message = $"Dispatch rule '{id}' not found."
+                Message = $"Routing rule '{id}' not found."
             });
         }
         return Ok(result);
     }
 
     /// <summary>
-    /// Update a dispatch rule. Only provided fields are modified.
+    /// Update a routing rule. Only provided fields are modified.
     /// </summary>
     [HttpPatch("{id}")]
-    [ProducesResponseType(typeof(DispatchRule), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(RoutingRule), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Update(string id, [FromBody] UpdateDispatchRuleRequest request, CancellationToken ct)
+    public async Task<IActionResult> Update(string id, [FromBody] UpdateRoutingRuleRequest request, CancellationToken ct)
     {
         var result = await _dispatchService.UpdateAsync(id, request, ct);
         if (result is null)
@@ -87,14 +88,14 @@ public class DispatchController : ControllerBase
             return NotFound(new ApiError
             {
                 Code = "NOT_FOUND",
-                Message = $"Dispatch rule '{id}' not found."
+                Message = $"Routing rule '{id}' not found."
             });
         }
         return Ok(result);
     }
 
     /// <summary>
-    /// Delete a dispatch rule.
+    /// Delete a routing rule.
     /// </summary>
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -107,7 +108,7 @@ public class DispatchController : ControllerBase
             return NotFound(new ApiError
             {
                 Code = "NOT_FOUND",
-                Message = $"Dispatch rule '{id}' not found."
+                Message = $"Routing rule '{id}' not found."
             });
         }
         return NoContent();

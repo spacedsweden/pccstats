@@ -17,6 +17,7 @@ public sealed class MessageService : IMessageService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _config;
     private readonly ILogger<MessageService> _logger;
+    private readonly IDispatchService _dispatchService;
 
     // In-memory message store (replace with DB in production)
     private readonly ConcurrentDictionary<string, MessageResponse> _messages = new();
@@ -37,11 +38,13 @@ public sealed class MessageService : IMessageService
     public MessageService(
         IHttpClientFactory httpClientFactory,
         IConfiguration config,
-        ILogger<MessageService> logger)
+        ILogger<MessageService> logger,
+        IDispatchService dispatchService)
     {
         _httpClientFactory = httpClientFactory;
         _config = config;
         _logger = logger;
+        _dispatchService = dispatchService;
     }
 
     /// <inheritdoc />
@@ -49,10 +52,44 @@ public sealed class MessageService : IMessageService
     {
         var sw = Stopwatch.StartNew();
 
-        // Handle multi-channel dispatch if dispatch steps are provided
-        if (request.Dispatch is { Count: > 0 })
+        // Resolve routing rule reference to inline routes
+        if (request.RoutingRule is not null)
         {
-            return await SendWithDispatchAsync(request, ct);
+            var rule = await _dispatchService.GetAsync(request.RoutingRule, ct)
+                ?? throw new ArgumentException($"Routing rule '{request.RoutingRule}' not found.");
+
+            if (!rule.Active)
+                throw new ArgumentException($"Routing rule '{request.RoutingRule}' is not active.");
+
+            // Convert rule routes to inline message routes
+            var routes = rule.Settings.Routes.Select(r => new MessageRoute
+            {
+                Channel = r.Channel,
+                Body = r.Body ?? request.Body,
+                Content = r.Content ?? request.Content,
+                From = r.From ?? request.From,
+                TimeoutSeconds = rule.Settings.TimeoutPerRoute
+            }).ToList();
+
+            request = new SendMessageRequest
+            {
+                To = request.To,
+                From = request.From,
+                Body = request.Body,
+                Content = request.Content,
+                Routes = routes,
+                CallbackUrl = request.CallbackUrl,
+                TtlSeconds = request.TtlSeconds,
+                Priority = request.Priority,
+                Metadata = request.Metadata,
+                CorrelationId = request.CorrelationId
+            };
+        }
+
+        // Handle multi-channel routing if routes are provided
+        if (request.Routes is { Count: > 0 })
+        {
+            return await SendWithRoutingAsync(request, ct);
         }
 
         var channel = request.EffectiveChannel;
@@ -293,12 +330,12 @@ public sealed class MessageService : IMessageService
     }
 
     /// <summary>
-    /// Executes multi-channel dispatch with failover strategy.
-    /// Tries each dispatch step in order until one succeeds.
+    /// Executes multi-channel routing with failover strategy.
+    /// Tries each route in order until one succeeds.
     /// </summary>
-    private async Task<MessageResponse> SendWithDispatchAsync(SendMessageRequest request, CancellationToken ct)
+    private async Task<MessageResponse> SendWithRoutingAsync(SendMessageRequest request, CancellationToken ct)
     {
-        foreach (var step in request.Dispatch!)
+        foreach (var step in request.Routes!)
         {
             DispatchAttemptsCounter.Add(1,
                 new KeyValuePair<string, object?>("strategy", "failover"),
@@ -306,7 +343,7 @@ public sealed class MessageService : IMessageService
 
             try
             {
-                var stepRequest = new SendMessageRequest
+                var routeRequest = new SendMessageRequest
                 {
                     To = request.To,
                     From = step.From ?? request.From,
@@ -320,24 +357,24 @@ public sealed class MessageService : IMessageService
                     TtlSeconds = step.TimeoutSeconds ?? request.TtlSeconds
                 };
 
-                var result = await SendAsync(stepRequest, ct);
+                var result = await SendAsync(routeRequest, ct);
 
                 if (result.Status != MessageStatus.Failed)
                 {
                     _logger.LogInformation(
-                        "Dispatch succeeded via {Channel} for {To}",
+                        "Route succeeded via {Channel} for {To}",
                         step.Channel, request.To);
                     return result;
                 }
 
                 _logger.LogWarning(
-                    "Dispatch step {Channel} failed for {To}, trying next route",
+                    "Route {Channel} failed for {To}, trying next route",
                     step.Channel, request.To);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "Dispatch step {Channel} threw exception for {To}, trying next route",
+                    "Route {Channel} threw exception for {To}, trying next route",
                     step.Channel, request.To);
             }
         }
@@ -350,10 +387,10 @@ public sealed class MessageService : IMessageService
             MessageId = GenerateId(),
             To = request.To,
             From = request.From ?? "unknown",
-            Channel = request.Dispatch![0].Channel,
+            Channel = request.Routes![0].Channel,
             Status = MessageStatus.Failed,
             CreatedAt = DateTimeOffset.UtcNow,
-            ErrorMessage = "All dispatch routes failed.",
+            ErrorMessage = "All routes failed.",
             Metadata = request.Metadata,
             CorrelationId = request.CorrelationId
         };
@@ -438,6 +475,8 @@ public sealed class MessageService : IMessageService
             _ => new { text_message = new { text = content.Text ?? string.Empty } }
         };
 
+        // Always use DISPATCH mode — no contacts or conversations created in Sinch.
+        // This gateway is a multichannel routing layer, not a CRM.
         return new
         {
             app_id = _config["Sinch:AppId"],
@@ -453,7 +492,7 @@ public sealed class MessageService : IMessageService
             },
             message = messageBody,
             channel_priority_order = new[] { sinchChannel },
-            processing_strategy = "DEFAULT",
+            processing_mode = "DISPATCH",
             correlation_id = request.CorrelationId,
             ttl = request.TtlSeconds
         };

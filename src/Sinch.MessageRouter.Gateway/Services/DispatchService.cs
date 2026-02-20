@@ -5,12 +5,12 @@ using Sinch.MessageRouter.Core.Dispatch;
 namespace Sinch.MessageRouter.Gateway.Services;
 
 /// <summary>
-/// In-memory dispatch rule manager. Handles CRUD for dispatch rules
-/// that define multi-channel routing strategies (failover, broadcast, round-robin, cost-optimized).
+/// In-memory routing rule manager. Handles CRUD for reusable routing rules
+/// that define multi-channel delivery strategies (failover, broadcast, round-robin, cost-optimized).
 /// </summary>
 public sealed class DispatchService : IDispatchService
 {
-    private readonly ConcurrentDictionary<string, DispatchRule> _rules = new();
+    private readonly ConcurrentDictionary<string, RoutingRule> _rules = new();
     private readonly ILogger<DispatchService> _logger;
 
     public DispatchService(ILogger<DispatchService> logger)
@@ -19,16 +19,16 @@ public sealed class DispatchService : IDispatchService
     }
 
     /// <inheritdoc />
-    public Task<DispatchRule> CreateAsync(CreateDispatchRuleRequest request, CancellationToken ct)
+    public Task<RoutingRule> CreateAsync(CreateRoutingRuleRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
-            throw new ArgumentException("Dispatch rule name is required.");
+            throw new ArgumentException("Routing rule name is required.");
 
         if (request.Settings.Routes is not { Count: > 0 })
-            throw new ArgumentException("At least one dispatch route is required.");
+            throw new ArgumentException("At least one channel route is required.");
 
         var id = Guid.NewGuid().ToString("N")[..16];
-        var rule = new DispatchRule
+        var rule = new RoutingRule
         {
             Id = id,
             Name = request.Name,
@@ -40,14 +40,14 @@ public sealed class DispatchService : IDispatchService
 
         _rules[id] = rule;
         _logger.LogInformation(
-            "Dispatch rule {RuleId} '{RuleName}' created with strategy {Strategy} and {RouteCount} routes",
+            "Routing rule {RuleId} '{RuleName}' created with strategy {Strategy} and {RouteCount} routes",
             id, request.Name, request.Settings.Strategy, request.Settings.Routes.Count);
 
         return Task.FromResult(rule);
     }
 
     /// <inheritdoc />
-    public Task<PaginatedResponse<DispatchRule>> ListAsync(string? cursor, int pageSize, CancellationToken ct)
+    public Task<PaginatedResponse<RoutingRule>> ListAsync(string? cursor, int pageSize, CancellationToken ct)
     {
         var rules = _rules.Values
             .OrderByDescending(r => r.CreatedAt)
@@ -64,7 +64,7 @@ public sealed class DispatchService : IDispatchService
         var page = rules.Take(pageSize).ToList();
         var hasMore = rules.Count > pageSize;
 
-        return Task.FromResult(new PaginatedResponse<DispatchRule>
+        return Task.FromResult(new PaginatedResponse<RoutingRule>
         {
             Items = page,
             NextCursor = hasMore && page.Count > 0 ? page[^1].Id : null,
@@ -74,19 +74,19 @@ public sealed class DispatchService : IDispatchService
     }
 
     /// <inheritdoc />
-    public Task<DispatchRule?> GetAsync(string id, CancellationToken ct)
+    public Task<RoutingRule?> GetAsync(string id, CancellationToken ct)
     {
         _rules.TryGetValue(id, out var rule);
         return Task.FromResult(rule);
     }
 
     /// <inheritdoc />
-    public Task<DispatchRule?> UpdateAsync(string id, UpdateDispatchRuleRequest request, CancellationToken ct)
+    public Task<RoutingRule?> UpdateAsync(string id, UpdateRoutingRuleRequest request, CancellationToken ct)
     {
         if (!_rules.TryGetValue(id, out var existing))
-            return Task.FromResult<DispatchRule?>(null);
+            return Task.FromResult<RoutingRule?>(null);
 
-        var updated = new DispatchRule
+        var updated = new RoutingRule
         {
             Id = existing.Id,
             Name = request.Name ?? existing.Name,
@@ -98,9 +98,9 @@ public sealed class DispatchService : IDispatchService
         };
 
         _rules[id] = updated;
-        _logger.LogInformation("Dispatch rule {RuleId} updated", id);
+        _logger.LogInformation("Routing rule {RuleId} updated", id);
 
-        return Task.FromResult<DispatchRule?>(updated);
+        return Task.FromResult<RoutingRule?>(updated);
     }
 
     /// <inheritdoc />
@@ -108,7 +108,7 @@ public sealed class DispatchService : IDispatchService
     {
         var removed = _rules.TryRemove(id, out _);
         if (removed)
-            _logger.LogInformation("Dispatch rule {RuleId} deleted", id);
+            _logger.LogInformation("Routing rule {RuleId} deleted", id);
         return Task.FromResult(removed);
     }
 }

@@ -4,22 +4,22 @@ using Sinch.MessageRouter.Core.Dispatch;
 namespace Sinch.MessageRouter.Gateway.Services;
 
 /// <summary>
-/// Manages dispatch rules for multi-channel message routing strategies.
+/// Manages routing rules for multi-channel message delivery strategies.
 /// </summary>
 public interface IDispatchService
 {
-    /// <summary>Creates a new dispatch rule.</summary>
-    Task<DispatchRule> CreateAsync(CreateDispatchRuleRequest request, CancellationToken ct = default);
+    /// <summary>Creates a new routing rule.</summary>
+    Task<RoutingRule> CreateAsync(CreateRoutingRuleRequest request, CancellationToken ct = default);
 
-    /// <summary>Lists all dispatch rules.</summary>
-    Task<PaginatedResponse<DispatchRule>> ListAsync(string? cursor, int pageSize, CancellationToken ct = default);
+    /// <summary>Lists all routing rules.</summary>
+    Task<PaginatedResponse<RoutingRule>> ListAsync(string? cursor, int pageSize, CancellationToken ct = default);
 
-    /// <summary>Gets a dispatch rule by ID.</summary>
-    Task<DispatchRule?> GetAsync(string id, CancellationToken ct = default);
+    /// <summary>Gets a routing rule by ID.</summary>
+    Task<RoutingRule?> GetAsync(string id, CancellationToken ct = default);
 
-    /// <summary>Updates a dispatch rule.</summary>
-    Task<DispatchRule?> UpdateAsync(string id, UpdateDispatchRuleRequest request, CancellationToken ct = default);
+    /// <summary>Updates a routing rule.</summary>
+    Task<RoutingRule?> UpdateAsync(string id, UpdateRoutingRuleRequest request, CancellationToken ct = default);
 
-    /// <summary>Deletes a dispatch rule.</summary>
+    /// <summary>Deletes a routing rule.</summary>
     Task<bool> DeleteAsync(string id, CancellationToken ct = default);
 }

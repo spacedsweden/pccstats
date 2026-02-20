@@ -4,26 +4,26 @@ using Sinch.MessageRouter.Core.Messages;
 namespace Sinch.MessageRouter.Core.Dispatch;
 
 /// <summary>
-/// Dispatch configuration for multi-channel message routing.
-/// This is the "hostile redesign" of Sinch's dispatch mode -
-/// much simpler while retaining all functionality.
+/// Routing configuration for multi-channel message delivery.
+/// Defines how messages are routed across channels — this replaces and simplifies
+/// the Sinch Conversation API dispatch mode.
 /// </summary>
-public class DispatchSettings
+public class RoutingSettings
 {
     /// <summary>
     /// Routing strategy.
-    /// - failover: Try routes in order until one succeeds
-    /// - broadcast: Send on all routes simultaneously
-    /// - round-robin: Distribute across routes evenly
-    /// - cost-optimized: Pick cheapest available route
+    /// - Failover: Try routes in order until one succeeds
+    /// - Broadcast: Send on all routes simultaneously
+    /// - RoundRobin: Distribute across routes evenly
+    /// - CostOptimized: Pick cheapest available route
     /// </summary>
-    [JsonConverter(typeof(JsonStringEnumConverter<DispatchStrategy>))]
-    public required DispatchStrategy Strategy { get; init; }
+    [JsonConverter(typeof(JsonStringEnumConverter<RoutingStrategy>))]
+    public required RoutingStrategy Strategy { get; init; }
 
     /// <summary>
     /// Ordered list of channel routes to attempt.
     /// </summary>
-    public required IReadOnlyList<DispatchRoute> Routes { get; init; }
+    public required IReadOnlyList<ChannelRoute> Routes { get; init; }
 
     /// <summary>
     /// Time in seconds to wait for each route before trying the next (failover only).
@@ -32,13 +32,13 @@ public class DispatchSettings
 
     /// <summary>
     /// Whether to continue trying remaining routes after first success (failover only).
-    /// Default false - stops after first success.
+    /// Default false — stops after first success.
     /// </summary>
     public bool? ContinueAfterSuccess { get; init; }
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<DispatchStrategy>))]
-public enum DispatchStrategy
+[JsonConverter(typeof(JsonStringEnumConverter<RoutingStrategy>))]
+public enum RoutingStrategy
 {
     Failover,
     Broadcast,
@@ -46,7 +46,7 @@ public enum DispatchStrategy
     CostOptimized
 }
 
-public class DispatchRoute
+public class ChannelRoute
 {
     /// <summary>Channel for this route.</summary>
     public required MessageChannel Channel { get; init; }

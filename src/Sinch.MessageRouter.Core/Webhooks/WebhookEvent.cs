@@ -10,8 +10,8 @@ namespace Sinch.MessageRouter.Core.Webhooks;
 [JsonDerivedType(typeof(MessageReadEvent), "message.read")]
 [JsonDerivedType(typeof(MessageFailedEvent), "message.failed")]
 [JsonDerivedType(typeof(MessageSubmittedEvent), "message.submitted")]
-[JsonDerivedType(typeof(DispatchCompletedEvent), "dispatch.completed")]
-[JsonDerivedType(typeof(DispatchFailedEvent), "dispatch.failed")]
+[JsonDerivedType(typeof(RoutingCompletedEvent), "routing.completed")]
+[JsonDerivedType(typeof(RoutingFailedEvent), "routing.failed")]
 public abstract class WebhookEvent
 {
     /// <summary>Unique event ID.</summary>
@@ -75,25 +75,23 @@ public class MessageSubmittedEvent : WebhookEvent
     public string? From { get; init; }
 }
 
-// ── Dispatch lifecycle events ───────────────────────────────────────
+// ── Routing lifecycle events ────────────────────────────────────────
 
 /// <summary>
-/// Fired when a dispatch operation has completed successfully (at least one route succeeded).
+/// Fired when multi-channel routing has completed successfully (at least one route succeeded).
 /// </summary>
-public class DispatchCompletedEvent : WebhookEvent
+public class RoutingCompletedEvent : WebhookEvent
 {
-    public required string DispatchId { get; init; }
     public required string MessageId { get; init; }
     public required MessageChannel SuccessfulChannel { get; init; }
     public int RoutesAttempted { get; init; }
 }
 
 /// <summary>
-/// Fired when a dispatch operation has exhausted all routes without success.
+/// Fired when multi-channel routing has exhausted all routes without success.
 /// </summary>
-public class DispatchFailedEvent : WebhookEvent
+public class RoutingFailedEvent : WebhookEvent
 {
-    public required string DispatchId { get; init; }
     public required string MessageId { get; init; }
     public int RoutesAttempted { get; init; }
     public string? LastErrorCode { get; init; }

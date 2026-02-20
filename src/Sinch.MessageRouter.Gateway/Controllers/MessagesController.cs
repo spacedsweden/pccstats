@@ -27,26 +27,26 @@ public class MessagesController : ControllerBase
     ///   Level 1 (SMS):      { "to": "+1234567890", "body": "Hello" }
     ///   Level 2 (channel):  { "to": "+1234567890", "channel": "whatsapp", "body": "Hello" }
     ///   Level 3 (rich):     { "to": "+1234567890", "channel": "rcs", "content": { "type": "card", ... } }
-    ///   Level 4 (dispatch): { "to": "+1234567890", "dispatch": [{ "channel": "rcs", ... }, { "channel": "sms", ... }] }
+    ///   Level 4 (routing):  { "to": "+1234567890", "routes": [{ "channel": "rcs", ... }, { "channel": "sms", ... }] }
     /// </summary>
     [HttpPost]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Send([FromBody] SendMessageRequest request, CancellationToken ct)
     {
-        if (request.Body is null && request.Content is null && request.Dispatch is null)
+        if (request.Body is null && request.Content is null && request.Routes is null && request.RoutingRule is null)
         {
             return BadRequest(new ApiError
             {
                 Code = "MISSING_CONTENT",
-                Message = "Provide at least one of: body, content, or dispatch."
+                Message = "Provide at least one of: body, content, routes, or routingRule."
             });
         }
 
         _logger.LogInformation(
             "Sending message to {To} via {Channel}",
             request.To,
-            request.Dispatch is { Count: > 0 } ? "dispatch" : request.EffectiveChannel.ToString());
+            request.Routes is { Count: > 0 } ? "multi-channel" : request.EffectiveChannel.ToString());
 
         var response = await _messageService.SendAsync(request, ct);
         return CreatedAtAction(nameof(Get), new { messageId = response.MessageId }, response);
