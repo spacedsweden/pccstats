@@ -1,0 +1,23 @@
+apiVersion: v2
+name: sinch-message-router
+description: >-
+  Helm chart for deploying the Sinch MessageRouter gateway on AWS EKS.
+  Provides high-availability message routing with YARP-based reverse proxy,
+  OpenTelemetry observability, and auto-scaling capabilities.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/your-org/sinch-message-router
+maintainers:
+  - name: Platform Engineering
+    email: platform-eng@your-org.com
+keywords:
+  - sinch
+  - message-router
+  - gateway
+  - yarp
+  - messaging
+annotations:
+  artifacthub.io/license: Proprietary
+  artifacthub.io/category: networking

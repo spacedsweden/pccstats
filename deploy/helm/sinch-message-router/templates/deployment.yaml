@@ -1,0 +1,208 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sinch-message-router.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sinch-message-router.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "sinch-message-router.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: {{ .Values.strategy.type }}
+    {{- if eq .Values.strategy.type "RollingUpdate" }}
+    rollingUpdate:
+      maxSurge: {{ .Values.strategy.rollingUpdate.maxSurge }}
+      maxUnavailable: {{ .Values.strategy.rollingUpdate.maxUnavailable }}
+    {{- end }}
+  template:
+    metadata:
+      annotations:
+        {{- include "sinch-message-router.checksumAnnotations" . | nindent 8 }}
+        {{- if .Values.otel.enabled }}
+        instrumentation.opentelemetry.io/inject-dotnet: "true"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "sinch-message-router.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "sinch-message-router.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          image: {{ include "sinch-message-router.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ include "sinch-message-router.otelEndpoint" . | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otel.serviceName | quote }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace={{ .Release.Namespace }},service.version={{ .Chart.AppVersion }},deployment.environment={{ .Values.env.ASPNETCORE_ENVIRONMENT }},k8s.pod.name=$(POD_NAME),k8s.namespace.name={{ .Release.Namespace }}"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_TRACES_EXPORTER
+              value: "otlp"
+            - name: OTEL_LOGS_EXPORTER
+              value: "otlp"
+            - name: OTEL_TRACES_SAMPLER
+              value: "parentbased_traceidratio"
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: "0.1"
+            {{- end }}
+            {{- if .Values.secrets.create }}
+            - name: SINCH_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sinch-message-router.secretName" . }}
+                  key: SINCH_PROJECT_ID
+            - name: SINCH_API_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sinch-message-router.secretName" . }}
+                  key: SINCH_API_KEY_ID
+            - name: SINCH_API_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sinch-message-router.secretName" . }}
+                  key: SINCH_API_KEY_SECRET
+            - name: SINCH_SERVICE_PLAN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sinch-message-router.secretName" . }}
+                  key: SINCH_SERVICE_PLAN_ID
+            - name: SINCH_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sinch-message-router.secretName" . }}
+                  key: SINCH_API_TOKEN
+            {{- end }}
+            {{- if .Values.mockServer.enabled }}
+            - name: SINCH_API_BASE_URL
+              value: "http://{{ include "sinch-message-router.mockFullname" . }}:{{ .Values.mockServer.service.port }}"
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- if and .Values.otel.enabled .Values.otel.sidecar.enabled }}
+        - name: otel-collector
+          image: "{{ .Values.otel.sidecar.image.repository }}:{{ .Values.otel.sidecar.image.tag }}"
+          imagePullPolicy: {{ .Values.otel.sidecar.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: metrics
+              containerPort: 8889
+              protocol: TCP
+          volumeMounts:
+            - name: otel-config
+              mountPath: /etc/otelcol-contrib/config.yaml
+              subPath: config.yaml
+              readOnly: true
+          resources:
+            {{- toYaml .Values.otel.sidecar.resources | nindent 12 }}
+        {{- end }}
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ include "sinch-message-router.configmapName" . }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- if and .Values.otel.enabled .Values.otel.sidecar.enabled }}
+        - name: otel-config
+          configMap:
+            name: {{ include "sinch-message-router.fullname" . }}-otel-config
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range .Values.topologySpreadConstraints }}
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: {{ .topologyKey }}
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "sinch-message-router.selectorLabels" $ | nindent 14 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

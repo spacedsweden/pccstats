@@ -1,0 +1,144 @@
+================================================================================
+  Sinch MessageRouter Gateway - {{ .Chart.Version }}
+  App Version: {{ .Chart.AppVersion }}
+================================================================================
+
+The Sinch MessageRouter gateway has been deployed successfully.
+
+Deployment: {{ include "sinch-message-router.fullname" . }}
+Namespace:  {{ .Release.Namespace }}
+
+--------------------------------------------------------------------------------
+  ACCESS
+--------------------------------------------------------------------------------
+
+{{- if .Values.ingress.enabled }}
+The gateway is accessible via Ingress:
+{{- range .Values.ingress.hosts }}
+  {{- range .paths }}
+  https://{{ $.Values.ingress.hosts | first | (index $.Values.ingress.hosts 0).host }}{{ .path }}
+  {{- end }}
+{{- end }}
+
+NOTE: It may take a few minutes for the AWS ALB to be provisioned and become
+healthy. Monitor the Ingress status with:
+
+  kubectl get ingress {{ include "sinch-message-router.fullname" . }} -n {{ .Release.Namespace }} -w
+
+{{- else }}
+The gateway is accessible within the cluster at:
+
+  {{ include "sinch-message-router.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+To access the gateway from your local machine, use port-forward:
+
+  kubectl port-forward svc/{{ include "sinch-message-router.fullname" . }} -n {{ .Release.Namespace }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080/health
+{{- end }}
+
+--------------------------------------------------------------------------------
+  HEALTH CHECK
+--------------------------------------------------------------------------------
+
+Verify the deployment is healthy:
+
+  kubectl get pods -l "app.kubernetes.io/name={{ include "sinch-message-router.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -n {{ .Release.Namespace }}
+
+Check the health endpoint:
+
+  kubectl exec -it deploy/{{ include "sinch-message-router.fullname" . }} -n {{ .Release.Namespace }} -- wget -qO- http://localhost:{{ .Values.service.targetPort }}/health
+
+--------------------------------------------------------------------------------
+  AUTOSCALING
+--------------------------------------------------------------------------------
+
+{{- if .Values.autoscaling.enabled }}
+HPA is enabled:
+  Min replicas: {{ .Values.autoscaling.minReplicas }}
+  Max replicas: {{ .Values.autoscaling.maxReplicas }}
+  CPU target:   {{ .Values.autoscaling.targetCPUUtilizationPercentage }}%
+  Memory target: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}%
+
+Monitor autoscaling:
+
+  kubectl get hpa {{ include "sinch-message-router.fullname" . }} -n {{ .Release.Namespace }} -w
+{{- else if .Values.keda.enabled }}
+KEDA ScaledObject is enabled:
+  Min replicas: {{ .Values.keda.minReplicaCount }}
+  Max replicas: {{ .Values.keda.maxReplicaCount }}
+
+Monitor KEDA scaling:
+
+  kubectl get scaledobject {{ include "sinch-message-router.fullname" . }} -n {{ .Release.Namespace }}
+{{- else }}
+Autoscaling is DISABLED. Running with {{ .Values.replicaCount }} fixed replicas.
+{{- end }}
+
+{{- if .Values.podDisruptionBudget.enabled }}
+
+--------------------------------------------------------------------------------
+  POD DISRUPTION BUDGET
+--------------------------------------------------------------------------------
+
+PDB is configured with minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+
+  kubectl get pdb {{ include "sinch-message-router.fullname" . }} -n {{ .Release.Namespace }}
+{{- end }}
+
+{{- if .Values.otel.enabled }}
+
+--------------------------------------------------------------------------------
+  OBSERVABILITY
+--------------------------------------------------------------------------------
+
+OpenTelemetry is enabled.
+{{- if .Values.otel.sidecar.enabled }}
+  Mode: Sidecar collector
+{{- else }}
+  Mode: Remote collector
+  Endpoint: {{ .Values.otel.collectorEndpoint }}
+{{- end }}
+  Service Name: {{ .Values.otel.serviceName }}
+
+{{- if .Values.serviceMonitor.enabled }}
+Prometheus ServiceMonitor is enabled - metrics will be scraped automatically.
+{{- end }}
+{{- end }}
+
+{{- if .Values.mockServer.enabled }}
+
+--------------------------------------------------------------------------------
+  MOCK SERVER (LOAD TESTING)
+--------------------------------------------------------------------------------
+
+WARNING: Mock server is ENABLED. This deployment is configured for load testing.
+The gateway is routing traffic to the mock server instead of the real Sinch API.
+
+Mock server: {{ include "sinch-message-router.mockFullname" . }}:{{ .Values.mockServer.service.port }}
+  Latency:      {{ .Values.mockServer.latencyMs }}ms
+  Error rate:   {{ .Values.mockServer.errorRate }}
+  Response size: {{ .Values.mockServer.responseSize }} bytes
+
+DO NOT use this configuration in production!
+{{- end }}
+
+--------------------------------------------------------------------------------
+  USEFUL COMMANDS
+--------------------------------------------------------------------------------
+
+View logs:
+  kubectl logs -l "app.kubernetes.io/name={{ include "sinch-message-router.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -n {{ .Release.Namespace }} -f
+
+Describe deployment:
+  kubectl describe deploy {{ include "sinch-message-router.fullname" . }} -n {{ .Release.Namespace }}
+
+View events:
+  kubectl get events -n {{ .Release.Namespace }} --sort-by='.lastTimestamp' | grep {{ include "sinch-message-router.fullname" . }}
+
+Upgrade:
+  helm upgrade {{ .Release.Name }} ./sinch-message-router -n {{ .Release.Namespace }} -f values.yaml
+
+Rollback:
+  helm rollback {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+================================================================================

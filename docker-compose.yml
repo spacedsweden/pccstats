@@ -1,0 +1,98 @@
+version: "3.8"
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Sinch.MessageRouter.Gateway/Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Sinch__ProjectId: "mock-project-id"
+      Sinch__AppId: "mock-app-id"
+      Sinch__AccessKeyId: "mock-key-id"
+      Sinch__AccessKeySecret: "mock-key-secret"
+      Sinch__BaseUrl: "http://mock-server:8081"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: "sinch-message-router"
+    depends_on:
+      mock-server:
+        condition: service_healthy
+    networks:
+      - message-router
+
+  mock-server:
+    build:
+      context: .
+      dockerfile: src/Sinch.MessageRouter.MockServer/Dockerfile
+    ports:
+      - "5001:8081"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      MockServer__LatencyMinMs: "20"
+      MockServer__LatencyMaxMs: "100"
+      MockServer__ErrorRate: "0.01"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/admin/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - message-router
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./deploy/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus exporter
+      - "13133:13133" # Health check
+    networks:
+      - message-router
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - message-router
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:10.3.1
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - message-router
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.54
+    ports:
+      - "16686:16686" # UI
+      - "14268:14268" # Collector HTTP
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - message-router
+
+networks:
+  message-router:
+    driver: bridge

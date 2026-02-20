@@ -1,0 +1,178 @@
+# -----------------------------------------------------------------------------
+# Sinch MessageRouter Gateway - Load Test Overrides
+# -----------------------------------------------------------------------------
+# Usage:
+#   helm upgrade --install sinch-message-router-loadtest ./sinch-message-router \
+#     -n sinch-loadtest \
+#     -f sinch-message-router/values.yaml \
+#     -f values-loadtest.yaml
+# -----------------------------------------------------------------------------
+
+replicaCount: 5
+
+image:
+  pullPolicy: IfNotPresent
+
+# -- Higher resources to handle load test traffic
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "2000m"
+
+# -- Disable ingress for load tests (use port-forward or internal LB)
+ingress:
+  enabled: false
+
+# -- Aggressive autoscaling for load testing
+autoscaling:
+  enabled: true
+  minReplicas: 5
+  maxReplicas: 80
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 70
+  customMetrics:
+    enabled: true
+    requestsPerSecond: 500
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 200
+          periodSeconds: 30
+        - type: Pods
+          value: 20
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+      selectPolicy: Min
+
+# -- Relaxed PDB for load testing
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# -- Load test environment - no real Sinch credentials
+env:
+  ASPNETCORE_ENVIRONMENT: "LoadTest"
+  ASPNETCORE_URLS: "http://+:8080"
+  LOG_LEVEL: "Warning"
+  SINCH_API_BASE_URL: "http://sinch-message-router-mock:8081"
+  SINCH_REGION: "us"
+  ENABLE_REQUEST_BUFFERING: "true"
+  REQUEST_TIMEOUT_SECONDS: "60"
+  RETRY_COUNT: "1"
+  CIRCUIT_BREAKER_FAILURE_THRESHOLD: "10"
+  CIRCUIT_BREAKER_RECOVERY_SECONDS: "10"
+
+# -- Dummy credentials for load testing (routed to mock server)
+secrets:
+  create: true
+  externalSecrets:
+    enabled: false
+  data:
+    SINCH_PROJECT_ID: "loadtest-project-id"
+    SINCH_API_KEY_ID: "loadtest-api-key-id"
+    SINCH_API_KEY_SECRET: "loadtest-api-key-secret"
+    SINCH_SERVICE_PLAN_ID: "loadtest-service-plan-id"
+    SINCH_API_TOKEN: "loadtest-api-token"
+
+# -- Enable mock server for load testing
+mockServer:
+  enabled: true
+  replicaCount: 4
+  image:
+    repository: your-registry.dkr.ecr.us-east-1.amazonaws.com/sinch-mock-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "1000m"
+  service:
+    type: ClusterIP
+    port: 8081
+  # -- Simulate realistic latency
+  latencyMs: 25
+  # -- No simulated errors during baseline load testing
+  errorRate: 0.0
+  # -- Realistic response payload size
+  responseSize: 512
+
+# -- OpenTelemetry enabled for observing load test behavior
+otel:
+  enabled: true
+  collectorEndpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+  serviceName: "sinch-message-router-loadtest"
+  sidecar:
+    enabled: false
+
+# -- Enable ServiceMonitor for load test monitoring
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: prometheus
+  interval: "10s"
+  scrapeTimeout: "5s"
+
+# -- Spread across nodes but not strictly across AZs for load test
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 50
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - sinch-message-router
+          topologyKey: kubernetes.io/hostname
+
+topologySpreadConstraints:
+  - maxSkew: 2
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels: {}
+  - maxSkew: 2
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels: {}
+
+# -- Relaxed rate limits for load testing
+config:
+  rateLimiting: |
+    {
+      "RateLimiting": {
+        "EnableRateLimiting": false,
+        "GlobalRateLimit": {
+          "PermitLimit": 999999,
+          "Window": "00:01:00",
+          "QueueLimit": 10000,
+          "QueueProcessingOrder": "OldestFirst"
+        },
+        "PerClientRateLimit": {
+          "PermitLimit": 999999,
+          "Window": "00:01:00",
+          "QueueLimit": 5000,
+          "SegmentSize": 10,
+          "TokenLimit": 999999,
+          "ReplenishmentPeriod": "00:00:01",
+          "TokensPerPeriod": 99999
+        },
+        "PerEndpointRateLimits": {}
+      }
+    }

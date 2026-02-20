@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sinch.MessageRouter.Core\Sinch.MessageRouter.Core.csproj" />
+  </ItemGroup>
+
+</Project>

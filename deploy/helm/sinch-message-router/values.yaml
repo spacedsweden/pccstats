@@ -1,0 +1,582 @@
+# -----------------------------------------------------------------------------
+# Sinch MessageRouter Gateway - Default Values
+# -----------------------------------------------------------------------------
+# This file contains the default configuration values for the Sinch
+# MessageRouter Helm chart. Override these values for environment-specific
+# deployments using additional values files (e.g., values-production.yaml).
+# -----------------------------------------------------------------------------
+
+# -- Number of gateway replicas
+replicaCount: 3
+
+# -- Container image configuration
+image:
+  repository: your-registry.dkr.ecr.us-east-1.amazonaws.com/sinch-message-router
+  tag: ""  # Defaults to Chart.appVersion if empty
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+#  - name: ecr-credentials
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+# -----------------------------------------------------------------------------
+# Service Account
+# -----------------------------------------------------------------------------
+serviceAccount:
+  # -- Create a ServiceAccount
+  create: true
+  # -- Annotations for the ServiceAccount (IRSA)
+  annotations: {}
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/sinch-message-router
+  # -- ServiceAccount name (generated if not set)
+  name: ""
+
+# -----------------------------------------------------------------------------
+# Pod Configuration
+# -----------------------------------------------------------------------------
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -----------------------------------------------------------------------------
+# Service
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  # -- Additional annotations for the Service
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Ingress (AWS ALB)
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: ""
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/success-codes: "200"
+    alb.ingress.kubernetes.io/group.name: sinch-message-router
+    alb.ingress.kubernetes.io/load-balancer-attributes: >-
+      idle_timeout.timeout_seconds=60,
+      routing.http.drop_invalid_header_fields.enabled=true,
+      routing.http2.enabled=true
+    alb.ingress.kubernetes.io/tags: >-
+      Environment=staging,
+      Service=sinch-message-router,
+      ManagedBy=helm
+    alb.ingress.kubernetes.io/wafv2-acl-arn: ""
+  hosts:
+    - host: message-router.staging.your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# -----------------------------------------------------------------------------
+# Horizontal Pod Autoscaler
+# -----------------------------------------------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 50
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  # -- Custom metrics for HPA (requires metrics adapter)
+  customMetrics:
+    enabled: true
+    # -- Target requests per second per pod
+    requestsPerSecond: 1000
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 120
+      selectPolicy: Min
+
+# -----------------------------------------------------------------------------
+# KEDA Scaler (alternative to HPA)
+# -----------------------------------------------------------------------------
+keda:
+  enabled: false
+  pollingInterval: 15
+  cooldownPeriod: 300
+  minReplicaCount: 3
+  maxReplicaCount: 50
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-server.monitoring.svc.cluster.local
+        metricName: http_requests_per_second
+        query: >-
+          sum(rate(http_server_request_duration_seconds_count{
+            service="{{ include \"sinch-message-router.fullname\" . }}"}[2m]
+          ))
+        threshold: "1000"
+    - type: cpu
+      metadata:
+        type: Utilization
+        value: "70"
+    - type: memory
+      metadata:
+        type: Utilization
+        value: "80"
+  fallback:
+    failureThreshold: 3
+    replicas: 5
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "1000m"
+
+# -----------------------------------------------------------------------------
+# Pod Disruption Budget
+# -----------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+  # maxUnavailable: 1  # Use either minAvailable or maxUnavailable, not both
+
+# -----------------------------------------------------------------------------
+# Probes
+# -----------------------------------------------------------------------------
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+  successThreshold: 1
+
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 30
+
+# -----------------------------------------------------------------------------
+# Scheduling
+# -----------------------------------------------------------------------------
+nodeSelector: {}
+
+tolerations: []
+
+# -- Pod anti-affinity to spread across AZs
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - sinch-message-router
+          topologyKey: topology.kubernetes.io/zone
+
+# -- Topology spread constraints for even distribution
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels: {}  # Populated by template
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels: {}  # Populated by template
+
+# -- Deployment strategy
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: "25%"
+    maxUnavailable: 0
+
+# -- Termination grace period in seconds
+terminationGracePeriodSeconds: 60
+
+# -----------------------------------------------------------------------------
+# OpenTelemetry Collector Sidecar
+# -----------------------------------------------------------------------------
+otel:
+  enabled: true
+  # -- OTel collector endpoint (when sidecar is disabled)
+  collectorEndpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+  # -- Service name reported to OTel
+  serviceName: "sinch-message-router"
+  sidecar:
+    enabled: false
+    image:
+      repository: otel/opentelemetry-collector-contrib
+      tag: "0.96.0"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "50m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
+    config:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: "0.0.0.0:4317"
+            http:
+              endpoint: "0.0.0.0:4318"
+      processors:
+        batch:
+          timeout: 5s
+          send_batch_size: 1024
+        memory_limiter:
+          check_interval: 1s
+          limit_mib: 100
+          spike_limit_mib: 20
+      exporters:
+        otlphttp:
+          endpoint: "https://otel-gateway.observability.svc.cluster.local:4318"
+        prometheus:
+          endpoint: "0.0.0.0:8889"
+      service:
+        pipelines:
+          traces:
+            receivers: [otlp]
+            processors: [memory_limiter, batch]
+            exporters: [otlphttp]
+          metrics:
+            receivers: [otlp]
+            processors: [memory_limiter, batch]
+            exporters: [prometheus]
+
+# -----------------------------------------------------------------------------
+# Environment Variables - Sinch API Configuration
+# -----------------------------------------------------------------------------
+env:
+  # -- Application environment
+  ASPNETCORE_ENVIRONMENT: "Production"
+  # -- Application URLs
+  ASPNETCORE_URLS: "http://+:8080"
+  # -- Log level
+  LOG_LEVEL: "Information"
+  # -- Sinch API base URL
+  SINCH_API_BASE_URL: "https://us.sms.api.sinch.com"
+  # -- Sinch API region
+  SINCH_REGION: "us"
+  # -- Enable request buffering
+  ENABLE_REQUEST_BUFFERING: "true"
+  # -- Request timeout in seconds
+  REQUEST_TIMEOUT_SECONDS: "30"
+  # -- Retry count for failed upstream requests
+  RETRY_COUNT: "3"
+  # -- Circuit breaker failure threshold
+  CIRCUIT_BREAKER_FAILURE_THRESHOLD: "5"
+  # -- Circuit breaker recovery time in seconds
+  CIRCUIT_BREAKER_RECOVERY_SECONDS: "30"
+
+# -- Additional environment variables from ConfigMap or Secret references
+extraEnv: []
+#  - name: EXTRA_VAR
+#    value: "extra-value"
+#  - name: SECRET_VAR
+#    valueFrom:
+#      secretKeyRef:
+#        name: my-secret
+#        key: secret-key
+
+# -- Mount extra environment variables from ConfigMaps or Secrets
+extraEnvFrom: []
+#  - configMapRef:
+#      name: extra-config
+#  - secretRef:
+#      name: extra-secrets
+
+# -----------------------------------------------------------------------------
+# Secrets - Sinch API Credentials
+# -----------------------------------------------------------------------------
+secrets:
+  # -- Create a Kubernetes Secret with Sinch credentials
+  create: true
+  # -- Use external-secrets-operator instead of inline secrets
+  externalSecrets:
+    enabled: false
+    # -- SecretStore or ClusterSecretStore reference
+    secretStoreRef:
+      name: aws-secrets-manager
+      kind: ClusterSecretStore
+    # -- Refresh interval for syncing external secrets
+    refreshInterval: "1h"
+    # -- AWS Secrets Manager key path
+    remoteRef:
+      key: "/sinch/message-router/api-credentials"
+  # -- Inline secret values (only used when externalSecrets.enabled is false)
+  # WARNING: Do not commit real credentials to version control.
+  # Use --set or a sealed values file in CI/CD pipelines.
+  data:
+    SINCH_PROJECT_ID: ""
+    SINCH_API_KEY_ID: ""
+    SINCH_API_KEY_SECRET: ""
+    SINCH_SERVICE_PLAN_ID: ""
+    SINCH_API_TOKEN: ""
+
+# -----------------------------------------------------------------------------
+# ConfigMap - Application Configuration
+# -----------------------------------------------------------------------------
+config:
+  # -- YARP reverse proxy routes
+  yarpRoutes: |
+    {
+      "ReverseProxy": {
+        "Routes": {
+          "sms-route": {
+            "ClusterId": "sinch-sms",
+            "Match": {
+              "Path": "/api/v1/sms/{**catch-all}"
+            },
+            "Transforms": [
+              { "PathRemovePrefix": "/api/v1" }
+            ]
+          },
+          "mms-route": {
+            "ClusterId": "sinch-mms",
+            "Match": {
+              "Path": "/api/v1/mms/{**catch-all}"
+            },
+            "Transforms": [
+              { "PathRemovePrefix": "/api/v1" }
+            ]
+          },
+          "conversation-route": {
+            "ClusterId": "sinch-conversation",
+            "Match": {
+              "Path": "/api/v1/conversation/{**catch-all}"
+            },
+            "Transforms": [
+              { "PathRemovePrefix": "/api/v1" }
+            ]
+          },
+          "health-route": {
+            "ClusterId": "self",
+            "Match": {
+              "Path": "/health"
+            }
+          }
+        },
+        "Clusters": {
+          "sinch-sms": {
+            "Destinations": {
+              "primary": {
+                "Address": "https://us.sms.api.sinch.com"
+              }
+            },
+            "HttpClient": {
+              "RequestHeaderEncoding": "Latin1"
+            }
+          },
+          "sinch-mms": {
+            "Destinations": {
+              "primary": {
+                "Address": "https://us.mms.api.sinch.com"
+              }
+            }
+          },
+          "sinch-conversation": {
+            "Destinations": {
+              "primary": {
+                "Address": "https://us.conversation.api.sinch.com"
+              }
+            }
+          }
+        }
+      }
+    }
+
+  # -- Channel mapping configuration
+  channelMapping: |
+    {
+      "ChannelMapping": {
+        "sms": {
+          "provider": "sinch",
+          "endpoint": "/xms/v1/{service_plan_id}/batches",
+          "rateLimit": 100,
+          "priority": 1
+        },
+        "mms": {
+          "provider": "sinch",
+          "endpoint": "/xms/v1/{service_plan_id}/batches",
+          "rateLimit": 50,
+          "priority": 2
+        },
+        "whatsapp": {
+          "provider": "sinch",
+          "endpoint": "/conversation/v1/projects/{project_id}/messages:send",
+          "rateLimit": 80,
+          "priority": 1
+        },
+        "rcs": {
+          "provider": "sinch",
+          "endpoint": "/conversation/v1/projects/{project_id}/messages:send",
+          "rateLimit": 60,
+          "priority": 3
+        }
+      }
+    }
+
+  # -- Rate limiting configuration
+  rateLimiting: |
+    {
+      "RateLimiting": {
+        "EnableRateLimiting": true,
+        "GlobalRateLimit": {
+          "PermitLimit": 10000,
+          "Window": "00:01:00",
+          "QueueLimit": 500,
+          "QueueProcessingOrder": "OldestFirst"
+        },
+        "PerClientRateLimit": {
+          "PermitLimit": 1000,
+          "Window": "00:01:00",
+          "QueueLimit": 50,
+          "SegmentSize": 10,
+          "TokenLimit": 1000,
+          "ReplenishmentPeriod": "00:00:10",
+          "TokensPerPeriod": 100
+        },
+        "PerEndpointRateLimits": {
+          "/api/v1/sms/*": {
+            "PermitLimit": 5000,
+            "Window": "00:01:00"
+          },
+          "/api/v1/mms/*": {
+            "PermitLimit": 2000,
+            "Window": "00:01:00"
+          },
+          "/api/v1/conversation/*": {
+            "PermitLimit": 3000,
+            "Window": "00:01:00"
+          }
+        }
+      }
+    }
+
+# -----------------------------------------------------------------------------
+# Prometheus ServiceMonitor
+# -----------------------------------------------------------------------------
+serviceMonitor:
+  enabled: false
+  # -- Namespace for the ServiceMonitor (defaults to release namespace)
+  namespace: ""
+  # -- Additional labels for ServiceMonitor discovery
+  additionalLabels: {}
+  #   release: prometheus
+  # -- Scrape interval
+  interval: "15s"
+  # -- Scrape timeout
+  scrapeTimeout: "10s"
+  # -- Metrics path
+  path: /metrics
+  # -- Metrics port name
+  port: http
+  # -- Metric relabelings
+  metricRelabelings: []
+  # -- Target relabelings
+  relabelings: []
+
+# -----------------------------------------------------------------------------
+# Mock Server (for load testing)
+# -----------------------------------------------------------------------------
+mockServer:
+  enabled: false
+  replicaCount: 2
+  image:
+    repository: your-registry.dkr.ecr.us-east-1.amazonaws.com/sinch-mock-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+  service:
+    type: ClusterIP
+    port: 8081
+  # -- Simulated latency in milliseconds
+  latencyMs: 50
+  # -- Simulated error rate (0.0 - 1.0)
+  errorRate: 0.0
+  # -- Response payload size in bytes
+  responseSize: 256
+
+# -----------------------------------------------------------------------------
+# Extra volumes and volume mounts
+# -----------------------------------------------------------------------------
+extraVolumes: []
+extraVolumeMounts: []
